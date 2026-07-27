@@ -1,0 +1,9 @@
+idf_component_register(
+    SRCS
+        "tmp116.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+    	driver
+        i2c_lock
+)

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export MSYS_NO_PATHCONV=1)",
+      "Bash(sleep 1)",
+      "Bash(sleep 6)",
+      "Bash(/c/Users/asad/AppData/Local/Programs/Python/Python313/python.exe -c ' *)"
+    ]
+  }
+}

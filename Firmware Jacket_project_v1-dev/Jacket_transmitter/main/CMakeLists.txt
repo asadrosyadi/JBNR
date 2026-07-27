@@ -1,0 +1,21 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "http_server.c"
+        "ble_server.c"
+      #  "ble_server.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+    	bt
+        driver
+        lora
+        gps
+        max30102
+        tmp116
+        i2c_lock
+        esp_http_server
+        esp_wifi
+        nvs_flash
+        esp_timer
+)
