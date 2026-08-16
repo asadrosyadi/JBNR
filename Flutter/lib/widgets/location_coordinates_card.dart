@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/lora_node.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
 /// "Your Location" readout plus a coordinate tile for every connected
 /// LoRa node - always all of them, independent of the node picked in
-/// [NodeSelectorCard]. "Your Location" is always shown full-width and
-/// visually distinct (it's the one fixed reference point everything
-/// else is measured against); node tiles fill a responsive 2-column
-/// grid below it.
+/// [NodeSelectorCard]. "Your Location" always leads the grid (still
+/// visually distinct via [_CoordinateTile.highlighted]) sharing its row
+/// with the first LoRa reading, then every following node fills the
+/// same responsive 2-column grid after it.
 class LocationCoordinatesCard extends StatelessWidget {
   final double? myLatitude;
   final double? myLongitude;
@@ -26,33 +29,75 @@ class LocationCoordinatesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.push_pin, color: AppColors.primary, size: 20),
-              SizedBox(width: 8),
+              const Icon(Icons.push_pin, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
               Text(
-                'Location Coordinates',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                s.locationCoordinates,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          _CoordinateTile(
-            icon: Icons.my_location,
-            iconColor: AppColors.accentBlue,
-            title: 'Your Location',
-            latitude: myLatitude,
-            longitude: myLongitude,
-            pillLabel: gpsActive ? 'GPS Active' : 'GPS Off',
-            pillActive: gpsActive,
-            highlighted: true,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const spacing = 12.0;
+              final tileWidth = (constraints.maxWidth - spacing) / 2;
+              // "Your Location" always leads the grid so it shares its row
+              // with the first LoRa node instead of sitting alone on a
+              // full-width row above a separate, disproportionately small
+              // node grid. Total count (1 + every node) staying odd is what
+              // pushes the trailing tile to full width - keeps it from
+              // being squeezed into a half-width cell next to empty space.
+              final tileCount = 1 + nodes.length;
+              final lastIsOdd = tileCount.isOdd;
+              Widget tileAt(int i) {
+                final width = lastIsOdd && i == tileCount - 1 ? constraints.maxWidth : tileWidth;
+                if (i == 0) {
+                  return SizedBox(
+                    width: width,
+                    child: _CoordinateTile(
+                      icon: Icons.my_location,
+                      iconColor: AppColors.accentBlue,
+                      title: s.yourLocation,
+                      latitude: myLatitude,
+                      longitude: myLongitude,
+                      pillLabel: gpsActive ? s.gpsActive : s.gpsOff,
+                      pillActive: gpsActive,
+                      highlighted: true,
+                    ),
+                  );
+                }
+                final node = nodes[i - 1];
+                return SizedBox(
+                  width: width,
+                  child: _CoordinateTile(
+                    icon: Icons.location_on,
+                    iconColor: node.hasFix ? AppColors.warning : AppColors.mutedLight,
+                    title: node.name,
+                    latitude: node.latitude,
+                    longitude: node.longitude,
+                    pillLabel: node.hasFix ? s.live : s.noFix,
+                    pillActive: node.hasFix,
+                  ),
+                );
+              }
+
+              return Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
+                children: [for (var i = 0; i < tileCount; i++) tileAt(i)],
+              );
+            },
           ),
-          const SizedBox(height: 12),
-          if (nodes.isEmpty)
+          if (nodes.isEmpty) ...[
+            const SizedBox(height: 12),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -63,41 +108,16 @@ class LocationCoordinatesCard extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  Icon(Icons.satellite_alt, size: 22, color: AppColors.mutedLight),
+                  const Icon(Icons.satellite_alt, size: 22, color: AppColors.mutedLight),
                   const SizedBox(height: 6),
-                  const Text(
-                    'No LoRa nodes reporting yet',
-                    style: TextStyle(fontSize: 12, color: AppColors.muted),
+                  Text(
+                    s.noLoraReportingYet,
+                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
                   ),
                 ],
               ),
-            )
-          else
-            LayoutBuilder(
-              builder: (context, constraints) {
-                const spacing = 12.0;
-                final tileWidth = (constraints.maxWidth - spacing) / 2;
-                return Wrap(
-                  spacing: spacing,
-                  runSpacing: spacing,
-                  children: [
-                    for (final node in nodes)
-                      SizedBox(
-                        width: tileWidth,
-                        child: _CoordinateTile(
-                          icon: Icons.location_on,
-                          iconColor: node.hasFix ? AppColors.warning : AppColors.mutedLight,
-                          title: node.name,
-                          latitude: node.latitude,
-                          longitude: node.longitude,
-                          pillLabel: node.hasFix ? 'Live' : 'No fix',
-                          pillActive: node.hasFix,
-                        ),
-                      ),
-                  ],
-                );
-              },
             ),
+          ],
         ],
       ),
     );

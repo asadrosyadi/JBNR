@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/jacket_message.dart';
 import '../screens/chat_room_screen.dart';
 import '../services/ble_service.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 
 /// Chat tab: a room list, like WhatsApp's chat list - one room for
@@ -16,6 +18,7 @@ class ChatTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
+    final s = Strings(context.watch<LocaleService>().language);
     final messages = ble.messages;
     final nodeNames = ble.nodeList.map((n) => n.name).toList();
 
@@ -30,15 +33,15 @@ class ChatTab extends StatelessWidget {
           _RoomTile(
             icon: Icons.campaign,
             iconColor: AppColors.warning,
-            title: 'Semua LoRa',
-            emptySubtitle: 'Broadcast ke semua node',
+            title: s.allLora,
+            emptySubtitle: s.broadcastToAllNodes,
             messages: broadcastMessages,
             unreadCount: ble.unreadCountForRoom(null),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => const ChatRoomScreen(
+                builder: (_) => ChatRoomScreen(
                   roomTarget: null,
-                  roomLabel: 'Semua LoRa',
+                  roomLabel: s.allLora,
                 ),
               ),
             ),
@@ -47,8 +50,9 @@ class ChatTab extends StatelessWidget {
                 : () => _confirmDeleteRoom(
                       context,
                       ble,
+                      s,
                       roomTarget: null,
-                      roomLabel: 'Semua LoRa',
+                      roomLabel: s.allLora,
                     ),
           ),
           const Divider(height: 1),
@@ -57,7 +61,7 @@ class ChatTab extends StatelessWidget {
               icon: Icons.person,
               iconColor: AppColors.accentBlue,
               title: name,
-              emptySubtitle: 'Chat personal',
+              emptySubtitle: s.personalChat,
               messages: messages.where((m) => m.nodeName == name).toList(),
               unreadCount: ble.unreadCountForRoom(name),
               onTap: () => Navigator.of(context).push(
@@ -68,6 +72,7 @@ class ChatTab extends StatelessWidget {
               onLongPress: () => _confirmDeleteRoom(
                 context,
                 ble,
+                s,
                 roomTarget: name,
                 roomLabel: name,
               ),
@@ -75,12 +80,12 @@ class ChatTab extends StatelessWidget {
             const Divider(height: 1),
           ],
           if (nodeNames.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
+            Padding(
+              padding: const EdgeInsets.all(24),
               child: Text(
-                'Belum ada LoRa yang terhubung untuk diajak chat personal',
+                s.noLoraConnectedForChat,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.muted, fontSize: 13),
+                style: const TextStyle(color: AppColors.muted, fontSize: 13),
               ),
             ),
         ],
@@ -93,20 +98,21 @@ class ChatTab extends StatelessWidget {
 /// "Delete chat".
 Future<void> _confirmDeleteRoom(
   BuildContext context,
-  BleService ble, {
+  BleService ble,
+  Strings s, {
   required String? roomTarget,
   required String roomLabel,
 }) async {
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Hapus Percakapan'),
-      content: Text('Semua pesan di percakapan "$roomLabel" akan dihapus. Lanjutkan?'),
+      title: Text(s.deleteConversationTitle),
+      content: Text(s.deleteConversationBody(roomLabel)),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
         TextButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Hapus', style: TextStyle(color: AppColors.danger)),
+          child: Text(s.delete, style: const TextStyle(color: AppColors.danger)),
         ),
       ],
     ),

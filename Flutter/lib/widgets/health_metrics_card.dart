@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
 /// Heart rate, SpO2, and temperature readings from a jacket. Reused
 /// for both the "My Jacket" pin and the "All LoRa Readings" browser -
 /// [title] and [trailing] (typically a node-picker dropdown) tell them
-/// apart.
+/// apart. [title] defaults to the localized "Health Metrics" when the
+/// caller doesn't override it with a node-specific title.
 class HealthMetricsCard extends StatelessWidget {
   final double? heartRate;
   final double? spo2;
   final double? temperature;
-  final String title;
+  final String? title;
   final Widget? trailing;
 
   const HealthMetricsCard({
@@ -19,12 +23,13 @@ class HealthMetricsCard extends StatelessWidget {
     required this.heartRate,
     required this.spo2,
     required this.temperature,
-    this.title = 'Health Metrics',
+    this.title,
     this.trailing,
   });
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -33,12 +38,20 @@ class HealthMetricsCard extends StatelessWidget {
             children: [
               const Icon(Icons.favorite, color: AppColors.danger, size: 20),
               const SizedBox(width: 8),
-              Text(
-                title,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              // Expanded (with ellipsis) instead of a plain Text - a long
+              // title (e.g. the localized "All LoRa Readings"/"Semua
+              // Pembacaan LoRa") next to a long node name in [trailing]
+              // could together overflow the row otherwise, since neither
+              // a bare Text nor a Spacer can shrink below their content.
+              Expanded(
+                child: Text(
+                  title ?? s.healthMetrics,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
               ),
               if (trailing != null) ...[
-                const Spacer(),
+                const SizedBox(width: 8),
                 trailing!,
               ],
             ],
@@ -51,7 +64,7 @@ class HealthMetricsCard extends StatelessWidget {
                   icon: Icons.favorite,
                   iconColor: AppColors.danger,
                   value: heartRate?.toStringAsFixed(1) ?? '--',
-                  label: 'Heart Rate\nBPM',
+                  label: s.heartRateBpm,
                 ),
               ),
               const SizedBox(width: 10),
@@ -60,7 +73,7 @@ class HealthMetricsCard extends StatelessWidget {
                   icon: Icons.water_drop,
                   iconColor: AppColors.dangerDark,
                   value: spo2?.toStringAsFixed(1) ?? '--',
-                  label: 'SpO2\n%',
+                  label: s.spo2Percent,
                 ),
               ),
               const SizedBox(width: 10),
@@ -69,7 +82,7 @@ class HealthMetricsCard extends StatelessWidget {
                   icon: Icons.thermostat,
                   iconColor: AppColors.warning,
                   value: temperature?.toStringAsFixed(1) ?? '--',
-                  label: 'Temperature\n°C',
+                  label: s.temperatureC,
                 ),
               ),
             ],

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 
 class _StatusDot extends StatelessWidget {
@@ -48,6 +51,7 @@ class StatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Row(
@@ -58,16 +62,16 @@ class StatusBar extends StatelessWidget {
                 ? AppColors.statusActive
                 : (connecting ? AppColors.warning : AppColors.statusInactiveOnDark),
             label: connected
-                ? 'Connected'
-                : (connecting ? 'Connecting...' : 'Disconnected'),
+                ? s.connected
+                : (connecting ? s.connectingEllipsis : s.disconnected),
           ),
           _StatusDot(
             color: gpsActive ? AppColors.statusActive : AppColors.statusInactiveOnDark,
-            label: gpsActive ? 'GPS Active' : 'GPS Off',
+            label: gpsActive ? s.gpsActive : s.gpsOff,
           ),
           _StatusDot(
             color: AppColors.statusInactiveOnDark,
-            label: '$deviceCount Devices',
+            label: s.devicesCount(deviceCount),
           ),
         ],
       ),

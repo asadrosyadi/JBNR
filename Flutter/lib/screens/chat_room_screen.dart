@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/jacket_message.dart';
 import '../services/ble_service.dart';
 import '../services/ble_uuids.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 
 /// A single chat room's conversation - either the broadcast room (sent
@@ -74,16 +76,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _confirmDeleteMessage(JacketMessage message) async {
+    final s = Strings(context.read<LocaleService>().language);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Pesan'),
-        content: const Text('Hapus pesan ini?'),
+        title: Text(s.deleteMessageTitle),
+        content: Text(s.deleteMessageBody),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Hapus', style: TextStyle(color: AppColors.danger)),
+            child: Text(s.delete, style: const TextStyle(color: AppColors.danger)),
           ),
         ],
       ),
@@ -94,18 +97,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _confirmDeleteRoom() async {
+    final s = Strings(context.read<LocaleService>().language);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Semua Pesan'),
-        content: Text(
-          'Semua pesan di percakapan "${widget.roomLabel}" akan dihapus. Lanjutkan?',
-        ),
+        title: Text(s.deleteAllMessagesTitle),
+        content: Text(s.deleteConversationBody(widget.roomLabel)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Hapus', style: TextStyle(color: AppColors.danger)),
+            child: Text(s.delete, style: const TextStyle(color: AppColors.danger)),
           ),
         ],
       ),
@@ -118,6 +120,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
+    final s = Strings(context.watch<LocaleService>().language);
     final messages = ble.messages.where(_belongsToRoom).toList();
 
     // Keep marking read while this room stays the active screen, so a
@@ -138,7 +141,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         actions: [
           IconButton(
             onPressed: messages.isEmpty ? null : _confirmDeleteRoom,
-            tooltip: 'Hapus semua pesan',
+            tooltip: s.deleteAllMessagesTooltip,
             icon: const Icon(Icons.delete_outline),
           ),
         ],
@@ -147,10 +150,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         children: [
           Expanded(
             child: messages.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
-                      'Belum ada pesan',
-                      style: TextStyle(color: AppColors.muted),
+                      s.noMessagesYet,
+                      style: const TextStyle(color: AppColors.muted),
                     ),
                   )
                 : ListView.builder(
@@ -182,8 +185,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         maxLength: BleUuids.maxChatTextLength,
                         decoration: InputDecoration(
                           hintText: widget.roomTarget == null
-                              ? 'Pesan ke semua LoRa...'
-                              : 'Pesan ke ${widget.roomLabel}...',
+                              ? s.messageToAllLora
+                              : s.messageTo(widget.roomLabel),
                           border: InputBorder.none,
                           isDense: true,
                           counterText: '',
