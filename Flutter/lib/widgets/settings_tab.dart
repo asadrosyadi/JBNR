@@ -3,6 +3,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import 'available_devices_card.dart';
 import 'device_info_card.dart';
+import 'language_card.dart';
 import 'offline_map_cache_card.dart';
 import 'system_status_card.dart';
 
@@ -65,6 +66,8 @@ class SettingsTab extends StatelessWidget {
           gpsActive: gpsActive,
           connectionActive: isConnected,
         ),
+        const SizedBox(height: 16),
+        const LanguageCard(),
         const SizedBox(height: 16),
         const OfflineMapCacheCard(),
       ],

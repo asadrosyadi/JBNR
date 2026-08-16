@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../services/downloaded_areas_store.dart';
+import '../services/format_utils.dart';
+import '../services/locale_service.dart';
 import '../services/tile_disk_cache.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
@@ -39,39 +43,20 @@ class _OfflineMapCacheCardState extends State<OfflineMapCacheCard> {
     return (size, areas);
   }
 
-  String _formatSize(int bytes) {
-    const kb = 1024;
-    const mb = kb * 1024;
-    if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(1)} MB';
-    if (bytes >= kb) return '${(bytes / kb).toStringAsFixed(0)} KB';
-    return '$bytes B';
-  }
-
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
-
-  Future<void> _deleteArea(DownloadedArea area) async {
+  Future<void> _deleteArea(DownloadedArea area, Strings s) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Data Tempat Ini'),
-        content: Text(
-          'Data offline "${area.label}" akan dihapus. Tempat lain yang sudah '
-          'diunduh tidak akan terpengaruh.',
-        ),
+        title: Text(s.deleteThisPlaceTitle),
+        content: Text(s.deleteThisPlaceBody(area.label)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
+            child: Text(s.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Hapus', style: TextStyle(color: AppColors.danger)),
+            child: Text(s.delete, style: const TextStyle(color: AppColors.danger)),
           ),
         ],
       ),
@@ -87,28 +72,24 @@ class _OfflineMapCacheCardState extends State<OfflineMapCacheCard> {
     if (!mounted) return;
     _refresh();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Data "${area.label}" dihapus')),
+      SnackBar(content: Text(s.placeDataDeleted(area.label))),
     );
   }
 
-  Future<void> _confirmClearAll() async {
+  Future<void> _confirmClearAll(Strings s) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Semua Data Peta Offline'),
-        content: const Text(
-          'Semua tile peta dari semua tempat, termasuk yang tersimpan dari '
-          'penjelajahan biasa, akan dihapus. Anda perlu koneksi internet '
-          'lagi untuk memuat ulang area manapun.',
-        ),
+        title: Text(s.deleteAllOfflineMapTitle),
+        content: Text(s.deleteAllOfflineMapBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
+            child: Text(s.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Hapus Semua', style: TextStyle(color: AppColors.danger)),
+            child: Text(s.deleteAll, style: const TextStyle(color: AppColors.danger)),
           ),
         ],
       ),
@@ -120,23 +101,25 @@ class _OfflineMapCacheCardState extends State<OfflineMapCacheCard> {
     if (!mounted) return;
     _refresh();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Semua data peta offline dihapus')),
+      SnackBar(content: Text(s.allOfflineMapDataDeleted)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<LocaleService>().language;
+    final s = Strings(lang);
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.map_outlined, color: AppColors.primary, size: 20),
-              SizedBox(width: 8),
+              const Icon(Icons.map_outlined, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
               Text(
-                'Peta Offline',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                s.offlineMap,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
             ],
           ),
@@ -145,9 +128,9 @@ class _OfflineMapCacheCardState extends State<OfflineMapCacheCard> {
             future: _future,
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                return const Text(
-                  'Menghitung...',
-                  style: TextStyle(color: AppColors.muted, fontSize: 13),
+                return Text(
+                  s.calculatingEllipsis,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 );
               }
               final (totalBytes, areas) = snapshot.data!;
@@ -159,22 +142,22 @@ class _OfflineMapCacheCardState extends State<OfflineMapCacheCard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        '${_formatSize(totalBytes)} tersimpan',
+                        s.storedSize(formatBytes(totalBytes)),
                         style: const TextStyle(color: AppColors.muted, fontSize: 13),
                       ),
                       TextButton(
-                        onPressed: totalBytes == 0 ? null : _confirmClearAll,
+                        onPressed: totalBytes == 0 ? null : () => _confirmClearAll(s),
                         style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                        child: const Text('Hapus Semua'),
+                        child: Text(s.deleteAll),
                       ),
                     ],
                   ),
                   if (areas.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        'Belum ada tempat yang diunduh',
-                        style: TextStyle(color: AppColors.muted, fontSize: 12),
+                        s.noPlacesDownloadedYet,
+                        style: const TextStyle(color: AppColors.muted, fontSize: 12),
                       ),
                     )
                   else ...[
@@ -198,15 +181,15 @@ class _OfflineMapCacheCardState extends State<OfflineMapCacheCard> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   Text(
-                                    'Diunduh ${_formatDate(area.downloadedAt)}',
+                                    s.downloadedOn(formatDate(area.downloadedAt, lang)),
                                     style: const TextStyle(fontSize: 11, color: AppColors.muted),
                                   ),
                                 ],
                               ),
                             ),
                             IconButton(
-                              onPressed: () => _deleteArea(area),
-                              tooltip: 'Hapus data tempat ini',
+                              onPressed: () => _deleteArea(area, s),
+                              tooltip: s.deleteThisPlaceTooltip,
                               icon: const Icon(
                                 Icons.delete_outline,
                                 color: AppColors.danger,

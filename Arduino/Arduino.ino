@@ -1670,13 +1670,41 @@ void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
     }
 }
 
-// Tiap siklus: kirim semua pesan chat yang di-queue dari BLE, lalu kirim
-// paket sensor sendiri, masing-masing diikuti jendela dengar untuk ACK
-// atau paket dari jaket lain (peer) - TX dan RX dalam satu task.
+// How often this node broadcasts its own sensor packet. Gates the beacon
+// by elapsed time (instead of a flat vTaskDelay after each send) so the
+// radio is never taken off-air waiting for the next beacon - see
+// lora_task() below.
+#define SENSOR_BEACON_INTERVAL_MS 4000
+
+// Size of each listening slice inside lora_task's main loop. Small enough
+// that the outgoing-chat queue and the sensor-beacon timer both stay
+// responsive (worst case ~this many ms of added latency), but each slice
+// still re-arms RXCONTINUOUS itself (see lora_listen_and_dispatch), so
+// nothing is lost switching between slices.
+#define LORA_LISTEN_SLICE_MS 200
+
+// Kirim pesan chat yang di-queue dari BLE sesegera mungkin, kirim paket
+// sensor sendiri secara berkala, dan SISANYA dihabiskan mendengarkan -
+// TX dan RX dalam satu task, tapi radio tetap standby RX kapan pun tidak
+// sedang mengirim, bukan dimatikan.
+//
+// Versi sebelumnya mengirim lalu mendengar singkat (<=1 detik) lalu
+// mematikan switch RX/TX selama 3 detik penuh setiap siklus - karena
+// setiap jaket menjalankan siklus dengan periode yang nyaris sama persis,
+// itu bisa membuat jendela "dengar" satu jaket terus-menerus jatuh pas
+// jaket lain sedang di fase "mati", sehingga paket dari LoRa lain (data
+// sensor maupun chat) nyaris tidak pernah tertangkap walau pengiriman
+// sendiri terlihat normal. Sekarang radio dibiarkan menyala mendengar
+// hampir sepanjang waktu dan hanya berpindah ke TX sesaat saat benar-benar
+// mengirim, lalu langsung kembali ke RX.
 void lora_task(void *arg)
 {
     esp_task_wdt_add(NULL);
     chat_tx_item_t chat_item;
+    TickType_t last_beacon = xTaskGetTickCount() - pdMS_TO_TICKS(SENSOR_BEACON_INTERVAL_MS);
+
+    set_rx_enable();
+    setRxMode();
 
     while (1) {
         // Drain outgoing chat messages queued by the BLE text write
@@ -1684,46 +1712,50 @@ void lora_task(void *arg)
         // mid-cycle.
         while (xQueueReceive(chat_tx_queue, &chat_item, 0) == pdTRUE) {
             lora_send_chat_packet(chat_item.target, chat_item.text);
-            set_rx_enable();
-            lora_listen_and_dispatch(300, NULL);
-        }
-
-        bool got_gps = xSemaphoreTake(datasent_mutex_gps, pdMS_TO_TICKS(100)) == pdTRUE;
-        bool got_max30102 = got_gps && xSemaphoreTake(datasent_mutex_max30102, pdMS_TO_TICKS(100)) == pdTRUE;
-        bool got_TMP117 = got_max30102 && xSemaphoreTake(datasent_mutex_TMP117, pdMS_TO_TICKS(100)) == pdTRUE;
-
-        if (got_TMP117) {
-            pkt.hr_x10 = ppg.hr;
-            pkt.spo2_x10 = ppg.spo2;
-            pkt.lat_x1e6 = gps_data.lat;
-            pkt.lon_x1e6 = gps_data.lon;
-            pkt.temp_x100 = TMP117_x100;
-
-            printf("[LoRa TX] Mengirim data sensor -> Lat: %.6f  Lon: %.6f  Suhu: %.2f C  HR: %.1f bpm  SpO2: %.1f %%\n",
-                   pkt.lat_x1e6 / 1e6f, pkt.lon_x1e6 / 1e6f, pkt.temp_x100 / 100.0f,
-                   pkt.hr_x10 / 10.0f, pkt.spo2_x10 / 10.0f);
-
-            lora_send_sensor_packet(&pkt);
-
             // lora_send() meninggalkan switch RF di posisi TX, pindah ke RX dulu
             set_rx_enable();
-
-            lora_listen_and_dispatch(1000, NULL);
-
-            disable_rx_tx();
-
-            xSemaphoreGive(datasent_mutex_gps);
-            xSemaphoreGive(datasent_mutex_max30102);
-            xSemaphoreGive(datasent_mutex_TMP117);
-        } else {
-            // Release whichever of the three were actually acquired above -
-            // otherwise a partial acquire (e.g. gps taken, max30102 timed
-            // out) would leak that mutex forever and deadlock its task.
-            if (got_max30102) xSemaphoreGive(datasent_mutex_max30102);
-            if (got_gps) xSemaphoreGive(datasent_mutex_gps);
+            setRxMode();
         }
 
-        vTaskDelay(pdMS_TO_TICKS(3000));
+        if ((xTaskGetTickCount() - last_beacon) >= pdMS_TO_TICKS(SENSOR_BEACON_INTERVAL_MS)) {
+            bool got_gps = xSemaphoreTake(datasent_mutex_gps, pdMS_TO_TICKS(100)) == pdTRUE;
+            bool got_max30102 = got_gps && xSemaphoreTake(datasent_mutex_max30102, pdMS_TO_TICKS(100)) == pdTRUE;
+            bool got_TMP117 = got_max30102 && xSemaphoreTake(datasent_mutex_TMP117, pdMS_TO_TICKS(100)) == pdTRUE;
+
+            if (got_TMP117) {
+                pkt.hr_x10 = ppg.hr;
+                pkt.spo2_x10 = ppg.spo2;
+                pkt.lat_x1e6 = gps_data.lat;
+                pkt.lon_x1e6 = gps_data.lon;
+                pkt.temp_x100 = TMP117_x100;
+
+                printf("[LoRa TX] Mengirim data sensor -> Lat: %.6f  Lon: %.6f  Suhu: %.2f C  HR: %.1f bpm  SpO2: %.1f %%\n",
+                       pkt.lat_x1e6 / 1e6f, pkt.lon_x1e6 / 1e6f, pkt.temp_x100 / 100.0f,
+                       pkt.hr_x10 / 10.0f, pkt.spo2_x10 / 10.0f);
+
+                lora_send_sensor_packet(&pkt);
+
+                // lora_send() meninggalkan switch RF di posisi TX, pindah ke RX dulu
+                set_rx_enable();
+                setRxMode();
+
+                xSemaphoreGive(datasent_mutex_gps);
+                xSemaphoreGive(datasent_mutex_max30102);
+                xSemaphoreGive(datasent_mutex_TMP117);
+            } else {
+                // Release whichever of the three were actually acquired above -
+                // otherwise a partial acquire (e.g. gps taken, max30102 timed
+                // out) would leak that mutex forever and deadlock its task.
+                if (got_max30102) xSemaphoreGive(datasent_mutex_max30102);
+                if (got_gps) xSemaphoreGive(datasent_mutex_gps);
+            }
+
+            last_beacon = xTaskGetTickCount();
+        }
+
+        // Spend the rest of the cycle actually listening for peers (sensor
+        // packets, chat, ACKs) instead of sleeping with the radio off-air.
+        lora_listen_and_dispatch(LORA_LISTEN_SLICE_MS, NULL);
     }
 }
 

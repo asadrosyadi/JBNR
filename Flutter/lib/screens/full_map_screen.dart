@@ -7,46 +7,16 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../l10n/strings.dart';
 import '../models/lora_node.dart';
 import '../services/ble_service.dart';
 import '../services/downloaded_areas_store.dart';
+import '../services/format_utils.dart';
 import '../services/geocoder.dart';
+import '../services/locale_service.dart';
 import '../services/map_tile_downloader.dart';
 import '../services/offline_first_tile_provider.dart';
 import '../theme/app_colors.dart';
-
-String _formatBytes(int bytes) {
-  const kb = 1024;
-  const mb = kb * 1024;
-  const gb = mb * 1024;
-  if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
-  if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(0)} MB';
-  return '${(bytes / kb).toStringAsFixed(0)} KB';
-}
-
-String _formatDuration(double seconds) {
-  if (seconds >= 3600) return '${(seconds / 3600).toStringAsFixed(1)} jam';
-  if (seconds >= 60) return '${(seconds / 60).toStringAsFixed(0)} menit';
-  return '${seconds.toStringAsFixed(0)} detik';
-}
-
-String _formatDate(DateTime date) {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'Mei',
-    'Jun',
-    'Jul',
-    'Agu',
-    'Sep',
-    'Okt',
-    'Nov',
-    'Des',
-  ];
-  return '${date.day} ${months[date.month - 1]} ${date.year}';
-}
 
 /// Fullscreen, fully-interactive live map (pinch to zoom, drag to pan).
 /// Tapping a LoRa node marker draws a line from your position to it and
@@ -104,8 +74,9 @@ class _FullMapScreenState extends State<FullMapScreen> {
     });
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
+      final s = Strings(context.read<LocaleService>().language);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tidak ada aplikasi peta untuk membuka navigasi')),
+        SnackBar(content: Text(s.noMapAppFound)),
       );
     }
   }
@@ -121,6 +92,8 @@ class _FullMapScreenState extends State<FullMapScreen> {
   }
 
   Future<void> _searchAndDownloadPlace() async {
+    final s = Strings(context.read<LocaleService>().language);
+    final lang = context.read<LocaleService>().language;
     final downloadedAreas = await DownloadedAreasStore.load();
     if (!mounted) return;
 
@@ -149,8 +122,7 @@ class _FullMapScreenState extends State<FullMapScreen> {
         bounds: area.bounds,
         minZoom: area.minZoom,
         maxZoom: area.maxZoom,
-        areaLabel:
-            '${area.label}\n(sudah pernah diunduh ${_formatDate(area.downloadedAt)})',
+        areaLabel: s.alreadyDownloadedNote(area.label, formatDate(area.downloadedAt, lang)),
       );
       if (completed) {
         await DownloadedAreasStore.upsert(
@@ -187,7 +159,7 @@ class _FullMapScreenState extends State<FullMapScreen> {
 
     if (geocoded == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tempat "$query" tidak ditemukan')),
+        SnackBar(content: Text(s.placeNotFound(query))),
       );
       return;
     }
@@ -252,10 +224,12 @@ class _FullMapScreenState extends State<FullMapScreen> {
     final isLargeDownload = tileCount > _largeDownloadThreshold;
 
     if (!mounted) return false;
+    final lang = context.read<LocaleService>().language;
+    final s = Strings(lang);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Unduh Area Ini'),
+        title: Text(s.downloadThisAreaTitle),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -269,9 +243,13 @@ class _FullMapScreenState extends State<FullMapScreen> {
                 const SizedBox(height: 8),
               ],
               Text(
-                'Sekitar $tileCount tile peta (zoom $minZoom-$maxZoom)\n'
-                '≈ ${_formatBytes(estimatedBytes)} • perkiraan waktu '
-                '${_formatDuration(estimatedSeconds)}',
+                s.downloadAreaBody(
+                  tileCount,
+                  minZoom,
+                  maxZoom,
+                  formatBytes(estimatedBytes),
+                  formatDuration(estimatedSeconds, lang),
+                ),
               ),
               if (isLargeDownload) ...[
                 const SizedBox(height: 12),
@@ -281,10 +259,9 @@ class _FullMapScreenState extends State<FullMapScreen> {
                     color: AppColors.warning.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text(
-                    'Unduhan sebesar ini makan waktu lama, '
-                    'dan menghabiskan banyak penyimpanan',
-                    style: TextStyle(fontSize: 12, color: AppColors.warning),
+                  child: Text(
+                    s.largeDownloadWarning,
+                    style: const TextStyle(fontSize: 12, color: AppColors.warning),
                   ),
                 ),
               ],
@@ -294,11 +271,11 @@ class _FullMapScreenState extends State<FullMapScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
+            child: Text(s.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Unduh'),
+            child: Text(s.download),
           ),
         ],
       ),
@@ -340,11 +317,10 @@ class _FullMapScreenState extends State<FullMapScreen> {
         duration: Duration(seconds: blockedByServer ? 6 : 4),
         content: Text(
           blockedByServer
-              ? 'Server peta OpenStreetMap membatasi akses sementara. '
-                    'Coba lagi nanti dengan area yang lebih kecil.'
+              ? s.mapServerBlocked
               : _cancelDownload
-              ? 'Unduhan dibatalkan'
-              : 'Area peta tersimpan untuk offline',
+              ? s.downloadCancelled
+              : s.areaSavedOffline,
         ),
       ),
     );
@@ -354,6 +330,7 @@ class _FullMapScreenState extends State<FullMapScreen> {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
+    final s = Strings(context.watch<LocaleService>().language);
     final nodes = ble.nodeList;
     final points = _points(ble.myLatitude, ble.myLongitude, nodes);
 
@@ -369,11 +346,11 @@ class _FullMapScreenState extends State<FullMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live Map'),
+        title: Text(s.liveMap),
         actions: [
           IconButton(
             onPressed: _downloading ? null : _searchAndDownloadPlace,
-            tooltip: 'Cari & unduh tempat',
+            tooltip: s.searchAndDownloadPlace,
             icon: const Icon(Icons.search),
           ),
           IconButton(
@@ -381,8 +358,8 @@ class _FullMapScreenState extends State<FullMapScreen> {
                 ? () => setState(() => _cancelDownload = true)
                 : _downloadVisibleArea,
             tooltip: _downloading
-                ? 'Batalkan unduhan'
-                : 'Unduh area ini untuk offline',
+                ? s.cancelDownload
+                : s.downloadThisAreaOffline,
             icon: _downloading
                 ? Stack(
                     alignment: Alignment.center,
@@ -529,6 +506,7 @@ class _DownloadProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(12),
@@ -541,10 +519,10 @@ class _DownloadProgressBar extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Mengunduh peta untuk offline...',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    s.downloadingMapForOffline,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                   ),
                 ),
                 Text(
@@ -571,13 +549,13 @@ class _DownloadProgressBar extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '$downloadedTiles/$totalTiles tile',
+                  s.tilesProgress(downloadedTiles, totalTiles),
                   style: const TextStyle(fontSize: 11, color: AppColors.muted),
                 ),
                 TextButton(
                   onPressed: onCancel,
                   style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                  child: const Text('Batalkan'),
+                  child: Text(s.cancel),
                 ),
               ],
             ),
@@ -608,6 +586,7 @@ class _DirectionPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     final distance = node.distanceFrom(myLatitude, myLongitude);
     final direction = node.compassFrom(myLatitude, myLongitude);
     final bearing = (myLatitude != null && myLongitude != null && node.hasFix)
@@ -660,8 +639,8 @@ class _DirectionPanel extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         distance != null
-                            ? '${distance.toStringAsFixed(0)} m • arah ${direction ?? '--'}'
-                            : 'Menunggu fix GPS...',
+                            ? s.distanceDirection(formatDistanceMeters(distance), s.compass(direction))
+                            : s.waitingGpsFix,
                         style: const TextStyle(
                           color: AppColors.muted,
                           fontSize: 13,
@@ -680,7 +659,7 @@ class _DirectionPanel extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: onNavigate,
                   icon: const Icon(Icons.directions),
-                  label: const Text('Navigasi'),
+                  label: Text(s.navigate),
                   style: FilledButton.styleFrom(backgroundColor: AppColors.accentBlue),
                 ),
               ),
@@ -746,6 +725,8 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<LocaleService>().language;
+    final s = Strings(lang);
     final typed = _controller.text.trim().toLowerCase();
     final matches = typed.isEmpty
         ? widget.downloadedAreas
@@ -754,7 +735,7 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
               .toList();
 
     return AlertDialog(
-      title: const Text('Unduh Berdasarkan Tempat'),
+      title: Text(s.downloadByPlaceTitle),
       content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
@@ -765,9 +746,9 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
               TextField(
                 controller: _controller,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'lokasi/kota',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: s.locationCityHint,
+                  border: const OutlineInputBorder(),
                 ),
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _submit(),
@@ -775,9 +756,9 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
               ),
               if (matches.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                const Text(
-                  'Sudah pernah diunduh',
-                  style: TextStyle(fontSize: 12, color: AppColors.muted),
+                Text(
+                  s.alreadyDownloaded,
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
                 ),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 180),
@@ -801,12 +782,12 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          'Diunduh ${_formatDate(area.downloadedAt)}',
+                          s.downloadedOn(formatDate(area.downloadedAt, lang)),
                           style: const TextStyle(fontSize: 11),
                         ),
                         trailing: IconButton(
                           onPressed: () => _redownloadExisting(area),
-                          tooltip: 'Unduh ulang',
+                          tooltip: s.redownloadTooltip,
                           icon: const Icon(Icons.refresh, size: 18),
                         ),
                         onTap: () => _selectExisting(area),
@@ -822,9 +803,9 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Batal'),
+          child: Text(s.cancel),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Cari')),
+        FilledButton(onPressed: _submit, child: Text(s.search)),
       ],
     );
   }

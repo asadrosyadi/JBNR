@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../services/ble_service.dart';
+import '../services/locale_service.dart';
 import '../services/permission_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_header.dart';
@@ -54,18 +56,19 @@ class _HomeScreenState extends State<HomeScreen> {
     BluetoothDevice device,
   ) async {
     final ble = context.read<BleService>();
+    final s = Strings(context.read<LocaleService>().language);
     final connected = await ble.connect(device);
     if (!context.mounted) return;
     if (connected) {
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Connected'),
-          content: const Text('Successfully connected to Smart Jacket!'),
+          title: Text(s.connectedTitle),
+          content: Text(s.connectedBody),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('OK'),
+              child: Text(s.ok),
             ),
           ],
         ),
@@ -75,17 +78,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _handleDisconnect(BuildContext context) async {
     final ble = context.read<BleService>();
+    final s = Strings(context.read<LocaleService>().language);
     await ble.disconnect();
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Disconnected'),
-        content: const Text('Successfully disconnected from device.'),
+        title: Text(s.disconnectedTitle),
+        content: Text(s.disconnectedBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK'),
+            child: Text(s.ok),
           ),
         ],
       ),
@@ -95,6 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
+    final s = Strings(context.watch<LocaleService>().language);
     final isConnected = ble.connectionState == JacketConnectionState.connected;
     final isConnecting =
         ble.connectionState == JacketConnectionState.connecting;
@@ -131,13 +136,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       unselectedLabelColor: Colors.white70,
                       indicatorColor: Colors.white,
                       tabs: [
-                        const Tab(text: 'Pengaturan'),
-                        const Tab(text: 'Beranda'),
+                        Tab(text: s.tabSettings),
+                        Tab(text: s.tabHome),
                         Tab(
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text('Chat'),
+                              Text(s.tabChat),
                               if (unreadCount > 0) ...[
                                 const SizedBox(width: 6),
                                 CircleAvatar(
@@ -189,18 +194,18 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: AppColors.statusActive,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(
+                                const Icon(
                                   Icons.check_circle,
                                   color: Colors.white,
                                   size: 18,
                                 ),
-                                SizedBox(width: 8),
+                                const SizedBox(width: 8),
                                 Text(
-                                  'Connected to Smart Jacket',
-                                  style: TextStyle(
+                                  s.connectedBanner,
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -222,11 +227,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 16),
                         if (isConnected) ...[
                           HealthMetricsCard(
-                            title: 'My Jacket',
+                            title: s.myJacket,
                             trailing: NodeDropdown(
                               nodes: ble.nodeList,
                               value: ble.myNodeName,
-                              hint: 'Pick yours',
+                              hint: s.pickYours,
                               onChanged: ble.setMyNode,
                             ),
                             heartRate: ble.myNode?.heartRateBpm,
@@ -235,11 +240,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 16),
                           HealthMetricsCard(
-                            title: 'All LoRa Readings',
+                            title: s.allLoraReadings,
                             trailing: NodeDropdown(
                               nodes: ble.otherNodeList,
                               value: ble.selectedNode?.name,
-                              hint: 'Pick node',
+                              hint: s.pickNode,
                               onChanged: ble.selectNode,
                             ),
                             heartRate: ble.selectedNode?.heartRateBpm,

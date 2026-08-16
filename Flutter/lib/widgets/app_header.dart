@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../l10n/strings.dart';
+import '../services/locale_service.dart';
 
 /// Top of the gradient header: app icon, title/subtitle, and a
 /// Bluetooth action button that triggers a scan when tapped. Meant to
@@ -10,6 +14,7 @@ class AppHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Row(
@@ -24,11 +29,11 @@ class AppHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'E-Textile Jacket',
                   style: TextStyle(
                     color: Colors.white,
@@ -37,8 +42,8 @@ class AppHeader extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'Monitoring System',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                  s.appSubtitle,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
               ],
             ),

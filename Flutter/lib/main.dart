@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'screens/home_screen.dart';
 import 'services/ble_service.dart';
+import 'services/locale_service.dart';
 import 'services/notification_service.dart';
 import 'theme/app_colors.dart';
 
@@ -17,8 +18,12 @@ class SmartJacketApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => BleService(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => BleService()),
+        // Drives Strings(...) everywhere - see LanguageCard for the picker.
+        ChangeNotifierProvider(create: (_) => LocaleService()),
+      ],
       child: MaterialApp(
         title: 'E-Textile Jacket',
         debugShowCheckedModeBanner: false,

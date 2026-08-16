@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+
+import '../l10n/strings.dart';
+import 'locale_service.dart';
 
 /// Requests Bluetooth + Location runtime permissions and confirms the
 /// underlying system services are switched on, surfacing the same
@@ -13,11 +17,11 @@ class PermissionService {
     final status = await Permission.locationWhenInUse.request();
     if (status.isDenied || status.isPermanentlyDenied) {
       if (!context.mounted) return false;
+      final s = Strings(context.read<LocaleService>().language);
       await _showAlert(
         context,
-        title: 'Location Permission Required',
-        message: 'Location permission was denied. '
-            'Please grant it so your GPS position can be shown.',
+        title: s.locationPermissionRequiredTitle,
+        message: s.locationPermissionDeniedBody,
       );
       return false;
     }
@@ -25,11 +29,11 @@ class PermissionService {
     final serviceStatus = await Permission.location.serviceStatus;
     if (serviceStatus != ServiceStatus.enabled) {
       if (!context.mounted) return false;
+      final s = Strings(context.read<LocaleService>().language);
       await _showAlert(
         context,
-        title: 'Location Services Disabled',
-        message: 'Location information is unavailable. '
-            'Please check your GPS and network connection.',
+        title: s.locationServicesDisabledTitle,
+        message: s.locationServicesDisabledBody,
       );
       return false;
     }
@@ -47,11 +51,11 @@ class PermissionService {
     final denied = statuses.values.any((s) => s.isDenied || s.isPermanentlyDenied);
     if (denied) {
       if (!context.mounted) return false;
+      final s = Strings(context.read<LocaleService>().language);
       await _showAlert(
         context,
-        title: 'Location Permission Required',
-        message: 'Bluetooth and Location permission was denied. '
-            'Please grant them to scan for your Smart Jacket.',
+        title: s.locationPermissionRequiredTitle,
+        message: s.bluetoothLocationPermissionDeniedBody,
       );
       return false;
     }
@@ -59,11 +63,11 @@ class PermissionService {
     final serviceStatus = await Permission.location.serviceStatus;
     if (serviceStatus != ServiceStatus.enabled) {
       if (!context.mounted) return false;
+      final s = Strings(context.read<LocaleService>().language);
       await _showAlert(
         context,
-        title: 'Location Services Disabled',
-        message: 'Location information is unavailable. '
-            'Please check your GPS and network connection.',
+        title: s.locationServicesDisabledTitle,
+        message: s.locationServicesDisabledBody,
       );
       return false;
     }
@@ -76,6 +80,7 @@ class PermissionService {
     required String title,
     required String message,
   }) {
+    final s = Strings(context.read<LocaleService>().language);
     return showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -84,14 +89,14 @@ class PermissionService {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Ask Me Later'),
+            child: Text(s.askMeLater),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
               openAppSettings();
             },
-            child: const Text('Open Settings'),
+            child: Text(s.openSettings),
           ),
         ],
       ),

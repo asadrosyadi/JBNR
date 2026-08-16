@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/lora_node.dart';
+import '../services/format_utils.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'live_map_card.dart';
 import 'section_card.dart';
@@ -31,11 +35,11 @@ class LocationTrackingCard extends StatelessWidget {
 
   int get _nodesWithFix => nodes.where((n) => n.hasFix).length;
 
-  String get _statusLabel {
-    if (!isConnected) return 'Idle';
-    if (nodes.isEmpty) return 'Waiting...';
-    if (hasMyFix && _nodesWithFix > 0) return 'Tracking';
-    return 'Waiting...';
+  String _statusLabel(Strings s) {
+    if (!isConnected) return s.idle;
+    if (nodes.isEmpty) return s.waitingEllipsis;
+    if (hasMyFix && _nodesWithFix > 0) return s.tracking;
+    return s.waitingEllipsis;
   }
 
   Color get _statusColor {
@@ -46,6 +50,7 @@ class LocationTrackingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -54,13 +59,13 @@ class LocationTrackingCard extends StatelessWidget {
             children: [
               const Icon(Icons.location_on, color: AppColors.primary, size: 20),
               const SizedBox(width: 8),
-              const Text(
-                'Location Tracking',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              Text(
+                s.locationTracking,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
               const Spacer(),
               Text(
-                '$_nodesWithFix/${nodes.length} jacket fix',
+                s.jacketsFixOf(_nodesWithFix, nodes.length),
                 style: const TextStyle(fontSize: 11, color: AppColors.muted),
               ),
               const SizedBox(width: 8),
@@ -83,10 +88,10 @@ class LocationTrackingCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _InfoColumn(label: 'Jackets Tracked', value: '${nodes.length}'),
+              _InfoColumn(label: s.jacketsTracked, value: '${nodes.length}'),
               _InfoColumn(
-                label: 'Status',
-                value: _statusLabel,
+                label: s.status,
+                value: _statusLabel(s),
                 valueColor: _statusColor,
               ),
             ],
@@ -124,6 +129,7 @@ class _MyLocationRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -134,16 +140,16 @@ class _MyLocationRow extends StatelessWidget {
             color: hasMyFix ? AppColors.statusActive : AppColors.mutedLight,
           ),
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: Text(
-              'GPS HP (Anda)',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              s.phoneGpsYou,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ),
           Text(
             hasMyFix
                 ? '${myLatitude!.toStringAsFixed(6)}, ${myLongitude!.toStringAsFixed(6)}'
-                : 'Menunggu fix GPS...',
+                : s.waitingGpsFix,
             style: const TextStyle(fontSize: 12, color: AppColors.primaryDark),
           ),
         ],
@@ -165,6 +171,7 @@ class _NodeTrackingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     final distance = node.distanceFrom(myLatitude, myLongitude);
     final direction = node.compassFrom(myLatitude, myLongitude);
 
@@ -184,18 +191,21 @@ class _NodeTrackingRow extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ),
-          Text(
-            distance != null ? '${distance.toStringAsFixed(0)} m' : '--',
-            style: const TextStyle(fontSize: 12, color: AppColors.primaryDark),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 28,
-            child: Text(
-              direction ?? '--',
-              textAlign: TextAlign.end,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
+          // Stacked (not side-by-side) so full, unabbreviated direction
+          // words ("Barat Daya"/"Southwest") have room to breathe instead
+          // of being squeezed into a fixed-width cell next to the distance.
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                distance != null ? formatDistanceMeters(distance) : '--',
+                style: const TextStyle(fontSize: 12, color: AppColors.primaryDark),
+              ),
+              Text(
+                s.compass(direction),
+                style: const TextStyle(fontSize: 11, color: AppColors.muted),
+              ),
+            ],
           ),
         ],
       ),

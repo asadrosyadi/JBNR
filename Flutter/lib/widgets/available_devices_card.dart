@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
@@ -23,6 +26,7 @@ class AvailableDevicesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -31,14 +35,14 @@ class AvailableDevicesCard extends StatelessWidget {
             children: [
               const Icon(Icons.bluetooth, color: AppColors.primary, size: 20),
               const SizedBox(width: 8),
-              const Text(
-                'Available Devices',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              Text(
+                s.availableDevices,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
               const Spacer(),
               TextButton(
                 onPressed: isScanning ? null : onScan,
-                child: Text(isScanning ? 'Scanning...' : 'Scan Again'),
+                child: Text(isScanning ? s.scanningEllipsis : s.scanAgain),
               ),
             ],
           ),
@@ -53,15 +57,15 @@ class AvailableDevicesCard extends StatelessWidget {
                     color: AppColors.mutedLight,
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'No Devices Found',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                  Text(
+                    s.noDevicesFound,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Click Scan to search for Smart Jacket devices',
+                  Text(
+                    s.clickScanToSearch,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: AppColors.muted),
+                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
@@ -69,7 +73,7 @@ class AvailableDevicesCard extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: isScanning ? null : onScan,
                       icon: const Icon(Icons.search),
-                      label: const Text('Start Scanning'),
+                      label: Text(s.startScanning),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.accentBlue,
                         foregroundColor: Colors.white,

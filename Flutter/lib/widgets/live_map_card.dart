@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
 import '../models/lora_node.dart';
 import '../screens/full_map_screen.dart';
+import '../services/locale_service.dart';
 import '../services/map_tile_downloader.dart';
 import '../services/offline_first_tile_provider.dart';
 import '../theme/app_colors.dart';
@@ -38,6 +41,7 @@ class LiveMapCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final points = _points;
     if (points.isEmpty) {
+      final s = Strings(context.watch<LocaleService>().language);
       return Container(
         height: 220,
         alignment: Alignment.center,
@@ -45,9 +49,9 @@ class LiveMapCard extends StatelessWidget {
           color: AppColors.background,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: const Text(
-          'Waiting for a GPS fix...',
-          style: TextStyle(color: AppColors.muted, fontSize: 12),
+        child: Text(
+          s.waitingGpsFix,
+          style: const TextStyle(color: AppColors.muted, fontSize: 12),
         ),
       );
     }

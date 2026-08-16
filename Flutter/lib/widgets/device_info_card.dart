@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
@@ -20,6 +23,7 @@ class DeviceInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -28,9 +32,9 @@ class DeviceInfoCard extends StatelessWidget {
             children: [
               const Icon(Icons.devices, color: AppColors.primary, size: 20),
               const SizedBox(width: 8),
-              const Text(
-                'Device Information',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              Text(
+                s.deviceInformation,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
               const Spacer(),
               Container(
@@ -58,11 +62,11 @@ class DeviceInfoCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _InfoRow(label: 'Device Name:', value: deviceName),
-          _InfoRow(label: 'Device ID:', value: deviceId),
-          const _InfoRow(
-            label: 'Connection:',
-            value: 'Secure',
+          _InfoRow(label: s.deviceNameLabel, value: deviceName),
+          _InfoRow(label: s.deviceIdLabel, value: deviceId),
+          _InfoRow(
+            label: s.connectionLabel,
+            value: s.secure,
             valueColor: AppColors.statusActive,
           ),
           const SizedBox(height: 16),
@@ -71,7 +75,7 @@ class DeviceInfoCard extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: onDisconnect,
               icon: const Icon(Icons.power_settings_new),
-              label: const Text('Disconnect Device'),
+              label: Text(s.disconnectDevice),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.danger,
                 foregroundColor: Colors.white,

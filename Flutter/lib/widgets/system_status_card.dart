@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../l10n/strings.dart';
+import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
@@ -19,17 +22,18 @@ class SystemStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = Strings(context.watch<LocaleService>().language);
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.bar_chart, color: AppColors.primary, size: 20),
-              SizedBox(width: 8),
+              const Icon(Icons.bar_chart, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
               Text(
-                'System Status',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                s.systemStatus,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
             ],
           ),
@@ -40,7 +44,7 @@ class SystemStatusCard extends StatelessWidget {
                 child: _StatusTile(
                   icon: Icons.bluetooth,
                   label: 'Bluetooth',
-                  value: bluetoothEnabled ? 'Enabled' : 'Disabled',
+                  value: bluetoothEnabled ? s.enabled : s.disabled,
                   active: bluetoothEnabled,
                 ),
               ),
@@ -49,7 +53,7 @@ class SystemStatusCard extends StatelessWidget {
                 child: _StatusTile(
                   icon: Icons.location_on,
                   label: 'GPS',
-                  value: gpsActive ? 'Active' : 'Off',
+                  value: gpsActive ? s.active : s.off,
                   active: gpsActive,
                 ),
               ),
@@ -61,17 +65,17 @@ class SystemStatusCard extends StatelessWidget {
               Expanded(
                 child: _StatusTile(
                   icon: Icons.wifi,
-                  label: 'Connection',
-                  value: connectionActive ? 'Active' : 'Inactive',
+                  label: s.connectionLabelShort,
+                  value: connectionActive ? s.active : s.inactive,
                   active: connectionActive,
                 ),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: _StatusTile(
                   icon: Icons.verified_user,
-                  label: 'Security',
-                  value: 'Secure',
+                  label: s.security,
+                  value: s.secure,
                   active: true,
                 ),
               ),
