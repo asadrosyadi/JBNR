@@ -8,15 +8,7 @@ import '../services/ble_uuids.dart';
 import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 
-/// A single chat room's conversation - either the broadcast room (sent
-/// to every LoRa node at once) or a personal room with one specific
-/// node. Kept as its own screen (pushed from the room list in
-/// [ChatTab]) so broadcast and personal messages never mix in the same
-/// timeline, and so sending never requires re-picking a target - the
-/// room you're in already determines it.
 class ChatRoomScreen extends StatefulWidget {
-  /// null = broadcast room (every LoRa node); otherwise the specific
-  /// node this room is a personal chat with.
   final String? roomTarget;
   final String roomLabel;
 
@@ -52,9 +44,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   bool _belongsToRoom(JacketMessage message) {
     if (widget.roomTarget == null) {
-      // Broadcast room: only outgoing broadcasts belong here. Every
-      // incoming message names a specific sending node, so it always
-      // belongs to that node's personal room instead.
       return !message.fromJacket && message.isBroadcast;
     }
     return message.nodeName == widget.roomTarget;
@@ -123,9 +112,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final s = Strings(context.watch<LocaleService>().language);
     final messages = ble.messages.where(_belongsToRoom).toList();
 
-    // Keep marking read while this room stays the active screen, so a
-    // message that arrives while the user is actively looking at it
-    // never lingers as "unread" once they leave.
     if (ble.unreadCountForRoom(widget.roomTarget) > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) ble.markRoomRead(widget.roomTarget);

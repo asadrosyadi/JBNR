@@ -6,9 +6,6 @@ import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
-/// Connected-device details and the disconnect action. Messaging with
-/// the LoRa nodes lives in its own dedicated Chat screen (see
-/// [AppDrawer]) rather than inline here.
 class DeviceInfoCard extends StatelessWidget {
   final String deviceName;
   final String deviceId;

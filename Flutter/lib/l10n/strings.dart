@@ -1,10 +1,5 @@
 import '../services/locale_service.dart';
 
-/// Every piece of user-facing text in the app, switched by
-/// [AppLanguage]. Build one from the current [LocaleService.language]
-/// (`final s = Strings(context.watch<LocaleService>().language);`)
-/// instead of hardcoding text in a widget - that's what lets
-/// [LanguageCard]'s picker re-localize the whole app at once.
 class Strings {
   final AppLanguage lang;
 
@@ -14,10 +9,8 @@ class Strings {
 
   String _t(String id, String en) => _id ? id : en;
 
-  // ===== App header =====
   String get appSubtitle => _t('Sistem Pemantauan', 'Monitoring System');
 
-  // ===== Status bar =====
   String get connected => _t('Terhubung', 'Connected');
   String get connectingEllipsis => _t('Menghubungkan...', 'Connecting...');
   String get disconnected => _t('Terputus', 'Disconnected');
@@ -25,7 +18,6 @@ class Strings {
   String get gpsOff => _t('GPS Mati', 'GPS Off');
   String devicesCount(int n) => _t('$n Perangkat', '$n Devices');
 
-  // ===== Home screen: tabs, dialogs, banners =====
   String get tabSettings => _t('Pengaturan', 'Settings');
   String get tabHome => _t('Beranda', 'Home');
   String get tabChat => 'Chat';
@@ -40,7 +32,6 @@ class Strings {
   String get allLoraReadings => _t('Semua Pembacaan LoRa', 'All LoRa Readings');
   String get pickNode => _t('Pilih node', 'Pick node');
 
-  // ===== Available devices =====
   String get availableDevices => _t('Perangkat Tersedia', 'Available Devices');
   String get scanningEllipsis => _t('Memindai...', 'Scanning...');
   String get scanAgain => _t('Pindai Lagi', 'Scan Again');
@@ -49,7 +40,6 @@ class Strings {
       _t('Klik Pindai untuk mencari perangkat Smart Jacket', 'Click Scan to search for Smart Jacket devices');
   String get startScanning => _t('Mulai Memindai', 'Start Scanning');
 
-  // ===== Device info =====
   String get deviceInformation => _t('Informasi Perangkat', 'Device Information');
   String get deviceNameLabel => _t('Nama Perangkat:', 'Device Name:');
   String get deviceIdLabel => _t('ID Perangkat:', 'Device ID:');
@@ -57,7 +47,6 @@ class Strings {
   String get secure => _t('Aman', 'Secure');
   String get disconnectDevice => _t('Putuskan Perangkat', 'Disconnect Device');
 
-  // ===== System status =====
   String get systemStatus => _t('Status Sistem', 'System Status');
   String get enabled => _t('Aktif', 'Enabled');
   String get disabled => _t('Nonaktif', 'Disabled');
@@ -67,24 +56,20 @@ class Strings {
   String get inactive => _t('Nonaktif', 'Inactive');
   String get security => _t('Keamanan', 'Security');
 
-  // ===== Health metrics =====
   String get healthMetrics => _t('Metrik Kesehatan', 'Health Metrics');
   String get heartRateBpm => _t('Detak Jantung\nBPM', 'Heart Rate\nBPM');
   String get spo2Percent => 'SpO2\n%';
   String get temperatureC => _t('Suhu\n°C', 'Temperature\n°C');
 
-  // ===== Node dropdown =====
   String get noLoraYet => _t('Belum ada LoRa', 'No LoRa yet');
   String get select => _t('Pilih', 'Select');
 
-  // ===== Location coordinates =====
   String get locationCoordinates => _t('Koordinat Lokasi', 'Location Coordinates');
   String get yourLocation => _t('Lokasi Anda', 'Your Location');
   String get live => _t('Langsung', 'Live');
   String get noFix => _t('Belum ada fix', 'No fix');
   String get noLoraReportingYet => _t('Belum ada node LoRa yang melapor', 'No LoRa nodes reporting yet');
 
-  // ===== Location tracking =====
   String get locationTracking => _t('Pelacakan Lokasi', 'Location Tracking');
   String jacketsFixOf(int fixed, int total) => _t('$fixed/$total jaket fix', '$fixed/$total jackets fixed');
   String get idle => _t('Nonaktif', 'Idle');
@@ -95,10 +80,6 @@ class Strings {
   String get phoneGpsYou => _t('GPS HP (Anda)', 'Phone GPS (You)');
   String get waitingGpsFix => _t('Menunggu fix GPS...', 'Waiting for GPS fix...');
 
-  /// Translates an 8-point compass code (`N`/`NE`/`E`/`SE`/`S`/`SW`/`W`/`NW`,
-  /// as returned by `LoraNode.compassFrom`) to a full, unabbreviated
-  /// direction word - Indonesian mata angin ("Barat Laut") or English
-  /// ("Northwest") - never a short code like "B"/"W", in either language.
   String compass(String? code) {
     if (code == null) return '--';
     if (_id) {
@@ -115,7 +96,6 @@ class Strings {
     return map[code] ?? code;
   }
 
-  // ===== Chat =====
   String get allLora => _t('Semua LoRa', 'All LoRa');
   String get broadcastToAllNodes => _t('Broadcast ke semua node', 'Broadcast to all nodes');
   String get personalChat => _t('Chat personal', 'Personal chat');
@@ -136,7 +116,6 @@ class Strings {
   String messageTo(String label) => _t('Pesan ke $label...', 'Message to $label...');
   String get deleteAllMessagesTooltip => _t('Hapus semua pesan', 'Delete all messages');
 
-  // ===== Offline map cache =====
   String get offlineMap => _t('Peta Offline', 'Offline Map');
   String get calculatingEllipsis => _t('Menghitung...', 'Calculating...');
   String storedSize(String size) => _t('$size tersimpan', '$size stored');
@@ -159,7 +138,6 @@ class Strings {
   String placeDataDeleted(String label) => _t('Data "$label" dihapus', '"$label" data deleted');
   String get allOfflineMapDataDeleted => _t('Semua data peta offline dihapus', 'All offline map data deleted');
 
-  // ===== Full map screen =====
   String get liveMap => _t('Peta Langsung', 'Live Map');
   String get searchAndDownloadPlace => _t('Cari & unduh tempat', 'Search & download place');
   String get cancelDownload => _t('Batalkan unduhan', 'Cancel download');
@@ -195,7 +173,6 @@ class Strings {
   String alreadyDownloadedNote(String label, String date) =>
       _t('$label\n(sudah pernah diunduh $date)', '$label\n(already downloaded $date)');
 
-  // ===== Permission dialogs =====
   String get locationPermissionRequiredTitle => _t('Izin Lokasi Diperlukan', 'Location Permission Required');
   String get locationPermissionDeniedBody => _t(
         'Izin lokasi ditolak. Mohon berikan izin agar posisi GPS Anda dapat ditampilkan.',
@@ -213,7 +190,6 @@ class Strings {
   String get askMeLater => _t('Nanti Saja', 'Ask Me Later');
   String get openSettings => _t('Buka Pengaturan', 'Open Settings');
 
-  // ===== Settings: language picker =====
   String get language => _t('Bahasa', 'Language');
   String get languageIndonesian => 'Bahasa Indonesia';
   String get languageEnglish => 'English';

@@ -7,7 +7,6 @@ import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
-/// Scan trigger, empty state, and the list of nearby jacket devices.
 class AvailableDevicesCard extends StatelessWidget {
   final bool isScanning;
   final List<ScanResult> results;

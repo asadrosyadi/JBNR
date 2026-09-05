@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_system.h"
+#include "esp_mac.h"
 #include "esp_random.h"
 
 #include "freertos/FreeRTOS.h"
@@ -34,6 +35,42 @@
 
 static_assert(sizeof(NODE_NAME) <= NODE_NAME_MAX_LEN, "NODE_NAME too long, raise NODE_NAME_MAX_LEN");
 
+// ===== Deterministic per-device BLE/Wi-Fi MAC =====
+// Cheap/cloned ESP32 modules are known to ship with duplicate factory-
+// burned (efuse) MAC addresses across units. When two jackets advertise
+// BLE under the identical MAC address, phones and BLE scanners (which
+// dedupe scan results by address) only ever show/connect to one of
+// them - which looks exactly like "only 1 jacket can pair, the others
+// don't even show up in any scan". Overriding the base MAC with one
+// derived deterministically from NODE_NAME guarantees every jacket gets
+// a distinct, stable BLE identity, with no extra per-unit bookkeeping
+// beyond the NODE_NAME line that already has to change per unit. Must
+// run before any Wi-Fi/BT stack call (BLEDevice::init() included).
+static void apply_unique_mac_from_node_name(void)
+{
+    uint32_t hash = 2166136261u; // FNV-1a of NODE_NAME
+    for (const char *p = NODE_NAME; *p; p++) {
+        hash ^= (uint8_t)(*p);
+        hash *= 16777619u;
+    }
+
+    uint8_t mac[6];
+    mac[0] = 0x02; // locally administered, unicast (IEEE bit pattern)
+    mac[1] = 0x4A; // fixed "Jacket project" marker byte
+    mac[2] = (uint8_t)(hash >> 24);
+    mac[3] = (uint8_t)(hash >> 16);
+    mac[4] = (uint8_t)(hash >> 8);
+    mac[5] = (uint8_t)hash;
+
+    esp_err_t err = esp_base_mac_addr_set(mac);
+    if (err == ESP_OK) {
+        printf("[MAC] Base MAC overridden for node \"%s\": %02X:%02X:%02X:%02X:%02X:%02X\n",
+               NODE_NAME, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else {
+        printf("[MAC] esp_base_mac_addr_set failed: %s\n", esp_err_to_name(err));
+    }
+}
+
 #pragma pack(push, 1)
 typedef struct
 {
@@ -51,6 +88,22 @@ typedef struct {
     double latitude;
     double longitude;
 } GPS_Coordinates;
+
+// Explicit forward declarations for every function whose signature uses a
+// custom struct/typedef from above (data_packet_t, GPS_Coordinates). The
+// Arduino IDE auto-generates forward declarations for every function in
+// the sketch and inserts them right after the last #include - i.e. BEFORE
+// these typedefs - so any such auto-generated prototype ends up
+// referencing a type that doesn't exist yet ("'data_packet_t' does not
+// name a type", etc.), and everything downstream that depends on it
+// cascades into further bogus errors. The auto-generator skips a function
+// if it already finds a matching declaration earlier in the file, so
+// declaring them here (after the typedefs, before first use) sidesteps
+// the bug entirely.
+void lora_send_sensor_packet(const data_packet_t *data);
+GPS_Coordinates get_dummy_gps_coordinates(void);
+void ble_notify_incoming_sensor(const char *sender_node, const data_packet_t *remote_pkt);
+void handle_remote_sensor_packet(const char *sender_node, const data_packet_t *rpkt);
 
 #define SPI_WRITE_BIT_MASK      0x80
 #define CLOCK_SPEED_MHZ         5
@@ -521,11 +574,14 @@ void lora_send_sensor_packet(const data_packet_t *data)
 
 void lora_send_chat_packet(const char *target, const char *text)
 {
+    if (target == NULL || target[0] == '\0') target = "ALL";
+    if (text == NULL || text[0] == '\0') return;
+
     lora_chat_packet_t out = {};
     out.header.type = LORA_PKT_CHAT;
-    strncpy(out.header.node, NODE_NAME, NODE_NAME_MAX_LEN - 1);
-    strncpy(out.target, target, NODE_NAME_MAX_LEN - 1);
-    strncpy(out.text, text, LORA_CHAT_MAX_LEN - 1);
+    snprintf(out.header.node, sizeof(out.header.node), "%s", NODE_NAME);
+    snprintf(out.target, sizeof(out.target), "%s", target);
+    snprintf(out.text, sizeof(out.text), "%s", text);
     printf("[CHAT] TX -> target=%s text=\"%s\"\n", out.target, out.text);
     lora_send((uint8_t *)&out, sizeof(out));
 }
@@ -616,6 +672,7 @@ class JacketServerCallbacks : public BLEServerCallbacks {
     void onDisconnect(BLEServer *server) override {
         ble_device_connected = false;
         ESP_LOGI(GATTS_TAG, "BLE client disconnected, restart advertising");
+        vTaskDelay(pdMS_TO_TICKS(500));
         BLEDevice::startAdvertising();
     }
 };
@@ -1066,17 +1123,22 @@ void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
                 set_tx_enable();
                 lora_send_ack();
                 set_rx_enable();
-            } else if (payload_len == sizeof(lora_chat_packet_t) &&
-                       rxBuffer[0] == LORA_PKT_CHAT) {
-                lora_chat_packet_t in;
-                memcpy(&in, rxBuffer, sizeof(in));
-                in.header.node[NODE_NAME_MAX_LEN - 1] = '\0';
-                in.target[NODE_NAME_MAX_LEN - 1] = '\0';
-                in.text[LORA_CHAT_MAX_LEN - 1] = '\0';
-                handle_remote_chat_packet(in.header.node, in.target, in.text);
-                set_tx_enable();
-                lora_send_ack();
-                set_rx_enable();
+            } else if (payload_len > 0 && rxBuffer[0] == LORA_PKT_CHAT) {
+                if (payload_len < (int)offsetof(lora_chat_packet_t, text)) {
+                    printf("[LoRa RX] Chat packet truncated: got %d bytes, expected at least %zu\n",
+                           payload_len, offsetof(lora_chat_packet_t, text));
+                } else {
+                    lora_chat_packet_t in = {};
+                    size_t copy_len = (payload_len < sizeof(in)) ? payload_len : sizeof(in);
+                    memcpy(&in, rxBuffer, copy_len);
+                    in.header.node[sizeof(in.header.node) - 1] = '\0';
+                    in.target[sizeof(in.target) - 1] = '\0';
+                    in.text[sizeof(in.text) - 1] = '\0';
+                    handle_remote_chat_packet(in.header.node, in.target, in.text);
+                    set_tx_enable();
+                    lora_send_ack();
+                    set_rx_enable();
+                }
             } else if (payload_len > 0) {
                 printf("[LoRa RX] Unknown packet (%d bytes)\n", payload_len);
             }
@@ -1201,6 +1263,8 @@ void setup()
     Serial.begin(115200);
     vTaskDelay(pdMS_TO_TICKS(200));
     printf("\n===== BOOT: last reset reason = %s =====\n\n", reset_reason_to_str(esp_reset_reason()));
+
+    apply_unique_mac_from_node_name();
 
     esp_task_wdt_config_t wdt_config = {
         .timeout_ms = 10000,

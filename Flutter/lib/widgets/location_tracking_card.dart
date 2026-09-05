@@ -9,10 +9,6 @@ import '../theme/app_colors.dart';
 import 'live_map_card.dart';
 import 'section_card.dart';
 
-/// Shows the phone's own position against *every* connected LoRa node
-/// at once on a live map - unlike the health/device cards, this view
-/// never filters down to a single selected node, since knowing where
-/// all jackets are is the whole point of tracking.
 class LocationTrackingCard extends StatelessWidget {
   final bool hasMyFix;
   final double? myLatitude;
@@ -113,9 +109,6 @@ class LocationTrackingCard extends StatelessWidget {
   }
 }
 
-/// The phone's own live GPS reading - shown alongside every LoRa
-/// node's data so "where am I" is answered right here too, not just
-/// "where is everyone else".
 class _MyLocationRow extends StatelessWidget {
   final double? myLatitude;
   final double? myLongitude;
@@ -191,9 +184,6 @@ class _NodeTrackingRow extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ),
-          // Stacked (not side-by-side) so full, unabbreviated direction
-          // words ("Barat Daya"/"Southwest") have room to breathe instead
-          // of being squeezed into a fixed-width cell next to the distance.
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [

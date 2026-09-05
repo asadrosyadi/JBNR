@@ -1,15 +1,9 @@
-/// A single text message exchanged over the LoRa mesh, relayed through
-/// the BLE receiver.
 class JacketMessage {
-  /// Sent to/from every node.
   static const String broadcastTarget = 'ALL';
 
   final String text;
   final bool fromJacket;
 
-  /// For an incoming message, the LoRa node that sent it. For an
-  /// outgoing message, the node it was addressed to, or
-  /// [broadcastTarget] if it was sent to every node.
   final String nodeName;
   final DateTime timestamp;
 
@@ -22,7 +16,6 @@ class JacketMessage {
 
   bool get isBroadcast => nodeName == broadcastTarget;
 
-  /// For persisting chat history to disk between app launches.
   Map<String, dynamic> toJson() => {
         'text': text,
         'fromJacket': fromJacket,

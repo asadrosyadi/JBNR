@@ -6,11 +6,6 @@ import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
-/// Heart rate, SpO2, and temperature readings from a jacket. Reused
-/// for both the "My Jacket" pin and the "All LoRa Readings" browser -
-/// [title] and [trailing] (typically a node-picker dropdown) tell them
-/// apart. [title] defaults to the localized "Health Metrics" when the
-/// caller doesn't override it with a node-specific title.
 class HealthMetricsCard extends StatelessWidget {
   final double? heartRate;
   final double? spo2;
@@ -38,11 +33,6 @@ class HealthMetricsCard extends StatelessWidget {
             children: [
               const Icon(Icons.favorite, color: AppColors.danger, size: 20),
               const SizedBox(width: 8),
-              // Expanded (with ellipsis) instead of a plain Text - a long
-              // title (e.g. the localized "All LoRa Readings"/"Semua
-              // Pembacaan LoRa") next to a long node name in [trailing]
-              // could together overflow the row otherwise, since neither
-              // a bare Text nor a Spacer can shrink below their content.
               Expanded(
                 child: Text(
                   title ?? s.healthMetrics,

@@ -10,8 +10,6 @@ void main() {
 
     expect(find.text('E-Textile Jacket'), findsWidgets);
 
-    // The scan/connect button lives on the "Pengaturan" tab, not the
-    // default "Beranda" tab.
     await tester.tap(find.text('Pengaturan'));
     await tester.pumpAndSettle();
 

@@ -2,9 +2,6 @@ import 'dart:math';
 
 import 'package:flutter_map/flutter_map.dart';
 
-/// Shared "slippy map" tile-index math, used by [MapTileDownloader] to
-/// enumerate a region's tiles and by [TileDiskCache] to delete exactly
-/// those same tiles again later, without touching anything else.
 class TileMath {
   TileMath._();
 

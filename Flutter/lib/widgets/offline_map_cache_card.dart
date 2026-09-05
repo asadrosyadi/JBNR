@@ -9,12 +9,6 @@ import '../services/tile_disk_cache.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
-/// Lists every place downloaded for offline use - a city, a mountain,
-/// a campus, anything searched and downloaded from the live map - each
-/// deletable on its own. Deleting one only removes that place's tiles,
-/// leaving other downloaded places (and anything cached from casual
-/// browsing) untouched. A "Hapus Semua" action is still available for
-/// a full wipe.
 class OfflineMapCacheCard extends StatefulWidget {
   const OfflineMapCacheCard({super.key});
 

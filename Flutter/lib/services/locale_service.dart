@@ -7,12 +7,6 @@ const _languagePrefsKey = 'app_language_v1';
 
 enum AppLanguage { indonesian, english }
 
-/// Holds the user's chosen UI language, persisted across app restarts.
-/// Every screen/widget builds its text from `Strings(language)` (see
-/// `l10n/strings.dart`) instead of hardcoding it, and [LanguageCard] in
-/// Settings is the only place that calls [setLanguage] - so picking a
-/// language there re-localizes the entire app at once via
-/// [notifyListeners], not just one screen.
 class LocaleService extends ChangeNotifier {
   AppLanguage language = AppLanguage.indonesian;
 
@@ -30,8 +24,6 @@ class LocaleService extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      // No shared_preferences plugin under `flutter test`/unsupported
-      // desktop targets - keep the default language rather than crash.
       debugPrint('[LocaleService] Failed to load saved language: $e');
     }
   }

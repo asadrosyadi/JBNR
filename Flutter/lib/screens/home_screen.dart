@@ -18,9 +18,6 @@ import '../widgets/node_dropdown.dart';
 import '../widgets/settings_tab.dart';
 import '../widgets/status_bar.dart';
 
-/// Single continuously-updating home screen: "Beranda" (scan/connect,
-/// telemetry) and "Chat" as swipeable top tabs, the same way WhatsApp
-/// switches between Chats/Status/Calls.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -33,9 +30,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // The phone's own GPS position on Location Tracking shouldn't
-      // have to wait for a Bluetooth scan/connect - ask for Location
-      // permission right away so it can start populating immediately.
       if (!mounted) return;
       final ready = await PermissionService.ensureLocationReady(context);
       if (!ready || !mounted) return;

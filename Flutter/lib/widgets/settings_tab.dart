@@ -7,10 +7,6 @@ import 'language_card.dart';
 import 'offline_map_cache_card.dart';
 import 'system_status_card.dart';
 
-/// Settings tab: device scan/connect list, connected-device details,
-/// and overall system status - moved out of "Beranda" so the home
-/// dashboard only shows live telemetry, not one-off setup/status
-/// controls.
 class SettingsTab extends StatelessWidget {
   final bool isConnected;
   final bool isScanning;

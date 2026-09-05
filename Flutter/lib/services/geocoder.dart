@@ -5,17 +5,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
-/// Below this, a place's bounding box is padded out to a circle of this
-/// radius around its center point. Needed because most named places
-/// that *aren't* administrative areas (a mountain peak, a campus, a
-/// landmark, ...) are only mapped in OpenStreetMap as a single point,
-/// not a bounded polygon - so Nominatim returns a near-zero-size
-/// bounding box for them. Without padding, "downloading" such a place
-/// would only fetch a single pinpoint tile instead of a useful area
-/// around it.
 const _minRadiusKm = 3.0;
 
-/// A place found by [Geocoder.search].
 class GeocodeResult {
   final String displayName;
   final LatLngBounds bounds;
@@ -28,13 +19,6 @@ class GeocodeResult {
   });
 }
 
-/// Looks up any named place - a city, a mountain, a campus, a
-/// landmark, an address, ... - using OpenStreetMap's free Nominatim
-/// geocoding service. No API key or billing needed.
-///
-/// Only used for one-off user-triggered searches (typing a place to
-/// download), so usage stays well within Nominatim's fair-use policy
-/// (max ~1 request/second, valid identifying User-Agent required).
 class Geocoder {
   Geocoder._();
 
@@ -66,8 +50,6 @@ class Geocoder {
     final centerLat = double.parse(result['lat'] as String);
     final centerLon = double.parse(result['lon'] as String);
 
-    // 1 degree of latitude is ~111km everywhere; 1 degree of longitude
-    // shrinks towards the poles by a factor of cos(latitude).
     final cosLat = cos(centerLat * pi / 180).abs().clamp(0.1, 1.0);
 
     if ((north - south) * 111.0 < _minRadiusKm * 2) {
@@ -88,12 +70,6 @@ class Geocoder {
     );
   }
 
-  /// Nominatim's `display_name` is a full address hierarchy (street,
-  /// suburb, city, province, postcode, country, ...) - readable as a
-  /// single line, but far too long to show as a place's title without
-  /// overflowing dialogs/list rows. Keep just the first couple of
-  /// segments (the specific place plus its immediate locality), which
-  /// is normally enough to identify it.
   static String _shortenDisplayName(String fullName) {
     final parts = fullName.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return fullName;

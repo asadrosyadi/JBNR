@@ -6,11 +6,6 @@ import '../models/lora_node.dart';
 import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 
-/// Small pill dropdown to pick a LoRa node by name. Reused as the
-/// trailing widget on both the "My Jacket" card (pick which node is
-/// yours) and the "All LoRa Readings" card (pick which node's data to
-/// browse). [hint] defaults to the localized "Select" when the caller
-/// doesn't override it with something more specific.
 class NodeDropdown extends StatelessWidget {
   final List<LoraNode> nodes;
   final String? value;
@@ -37,10 +32,6 @@ class NodeDropdown extends StatelessWidget {
 
     final current = nodes.any((n) => n.name == value) ? value : null;
 
-    // Capped width + isExpanded + ellipsis: a node name long enough
-    // (e.g. "Jaket-1Fx") could otherwise force this pill wider than the
-    // card row has room for, overflowing next to the card's title -
-    // this way it truncates instead.
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 130),
       child: Container(

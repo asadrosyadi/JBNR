@@ -4,9 +4,6 @@ import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import '../services/locale_service.dart';
 
-/// Top of the gradient header: app icon, title/subtitle, and a
-/// Bluetooth action button that triggers a scan when tapped. Meant to
-/// sit directly above [StatusBar] inside the same gradient container.
 class AppHeader extends StatelessWidget {
   final VoidCallback onBluetoothTap;
 

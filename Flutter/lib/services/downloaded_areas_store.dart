@@ -4,8 +4,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// A named area (a city searched via [Geocoder]) that's already been
-/// downloaded for offline use.
 class DownloadedArea {
   final String label;
   final LatLngBounds bounds;
@@ -44,12 +42,6 @@ class DownloadedArea {
       );
 }
 
-/// Persists which named areas have already been downloaded for
-/// offline use, so the city-search dialog can surface them instead of
-/// making the wearer re-search from scratch every time - re-selecting
-/// one re-downloads straight from its saved bounds, without needing to
-/// hit Nominatim (or even be online, if nothing's actually missing
-/// from the tile cache).
 class DownloadedAreasStore {
   DownloadedAreasStore._();
 
@@ -71,8 +63,6 @@ class DownloadedAreasStore {
     }
   }
 
-  /// Records [area] as downloaded, replacing any existing entry with
-  /// the same (case-insensitive) label.
   static Future<void> upsert(DownloadedArea area) async {
     final areas = await load();
     areas.removeWhere((a) => a.label.toLowerCase() == area.label.toLowerCase());
@@ -80,15 +70,12 @@ class DownloadedAreasStore {
     await _save(areas);
   }
 
-  /// Forgets [label] - used after its tiles are deleted so it stops
-  /// showing up as "already downloaded".
   static Future<void> remove(String label) async {
     final areas = await load();
     areas.removeWhere((a) => a.label.toLowerCase() == label.toLowerCase());
     await _save(areas);
   }
 
-  /// Forgets every downloaded area - used after a full cache wipe.
   static Future<void> clear() => _save([]);
 
   static Future<void> _save(List<DownloadedArea> areas) async {

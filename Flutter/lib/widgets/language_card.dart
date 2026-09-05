@@ -6,10 +6,6 @@ import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
-/// App-wide language picker: Bahasa Indonesia / English. Changing it
-/// updates [LocaleService.language], which every screen/widget reads
-/// via `Strings(...)` - so this is the one place that flips the whole
-/// app's text at once, not just this tab.
 class LanguageCard extends StatelessWidget {
   const LanguageCard({super.key});
 

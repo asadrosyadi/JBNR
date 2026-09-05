@@ -5,14 +5,7 @@ import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import 'locale_service.dart';
 
-/// Requests Bluetooth + Location runtime permissions and confirms the
-/// underlying system services are switched on, surfacing the same
-/// alert copy found in the original Smart Jacket app.
 class PermissionService {
-  /// Requests just the Location permission (not Bluetooth), so the
-  /// phone's own GPS position on the home screen's Location Tracking
-  /// card can populate immediately - it shouldn't have to wait for the
-  /// user to scan for or connect to a jacket first.
   static Future<bool> ensureLocationReady(BuildContext context) async {
     final status = await Permission.locationWhenInUse.request();
     if (status.isDenied || status.isPermanentlyDenied) {

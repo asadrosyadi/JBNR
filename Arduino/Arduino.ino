@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_system.h"
+#include "esp_mac.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -30,26 +31,44 @@
 
 #define TAG "JACKET"
 
-// ===== Node identity =====
-// Every physical jacket flashes this exact same .ino, so this is the one
-// line that must change per unit before flashing (e.g. "Jaket-1" on the
-// first jacket, "Jaket-2" on the second, ...). It tags every BLE
-// notification and every LoRa packet this device sends, which is how the
-// Flutter app (see BleUuids/BleService) tells nodes apart and how peer
-// jackets address chat messages to each other.
 #define NODE_NAME "Jaket-1Fx"
 #define NODE_NAME_MAX_LEN 16
 
 static_assert(sizeof(NODE_NAME) <= NODE_NAME_MAX_LEN, "NODE_NAME too long, raise NODE_NAME_MAX_LEN");
 
+static void apply_unique_mac_from_node_name(void)
+{
+    uint32_t hash = 2166136261u;
+    for (const char *p = NODE_NAME; *p; p++) {
+        hash ^= (uint8_t)(*p);
+        hash *= 16777619u;
+    }
+
+    uint8_t mac[6];
+    mac[0] = 0x02;
+    mac[1] = 0x4A;
+    mac[2] = (uint8_t)(hash >> 24);
+    mac[3] = (uint8_t)(hash >> 16);
+    mac[4] = (uint8_t)(hash >> 8);
+    mac[5] = (uint8_t)hash;
+
+    esp_err_t err = esp_base_mac_addr_set(mac);
+    if (err == ESP_OK) {
+        printf("[MAC] Base MAC overridden for node \"%s\": %02X:%02X:%02X:%02X:%02X:%02X\n",
+               NODE_NAME, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else {
+        printf("[MAC] esp_base_mac_addr_set failed: %s\n", esp_err_to_name(err));
+    }
+}
+
 #pragma pack(push, 1)
 typedef struct
 {
-    int32_t  lat_x1e6;     // GPS latitude  * 1e6
-    int32_t  lon_x1e6;     // GPS longitude * 1e6
-    int16_t  temp_x100;    // Temperature (C * 100)
-    uint16_t hr_x10;       // Heart rate (bpm * 10)
-    uint16_t spo2_x10;     // SpO2 (% * 10)
+    int32_t  lat_x1e6;
+    int32_t  lon_x1e6;
+    int16_t  temp_x100;
+    uint16_t hr_x10;
+    uint16_t spo2_x10;
 } data_packet_t;
 #pragma pack(pop)
 
@@ -76,6 +95,28 @@ typedef struct {
     int index;
     float value;
 } peak_t;
+
+// Explicit forward declarations for every function whose signature uses a
+// custom struct/typedef from above (data_packet_t, GPS_Coordinates,
+// max30102_t, max30102_current_t, peak_t). The Arduino IDE auto-generates
+// forward declarations for every function in the sketch and inserts them
+// right after the last #include - i.e. BEFORE these typedefs - so any such
+// auto-generated prototype ends up referencing a type that doesn't exist
+// yet ("'data_packet_t' does not name a type", etc.), and everything
+// downstream that depends on it cascades into further bogus errors. The
+// auto-generator skips a function if it already finds a matching
+// declaration earlier in the file, so declaring them here (after the
+// typedefs, before first use) sidesteps the bug entirely.
+void lora_send_sensor_packet(const data_packet_t *data);
+GPS_Coordinates get_gps_coordinates(void);
+esp_err_t max30102_write_register(max30102_t *self, uint8_t address, uint8_t val);
+esp_err_t max30102_read_register(max30102_t *self, uint8_t address, uint8_t *reg);
+esp_err_t max30102_set_led_current(max30102_t *self, max30102_current_t red_current, max30102_current_t ir_current);
+esp_err_t max30102_init(max30102_t *self, i2c_port_t i2c_num);
+esp_err_t max30102_print_registers(max30102_t *self);
+void ble_notify_incoming_sensor(const char *sender_node, const data_packet_t *remote_pkt);
+static int detect_peaks(const float *signal, int size, peak_t *peaks, int max_peaks);
+void handle_remote_sensor_packet(const char *sender_node, const data_packet_t *rpkt);
 
 #define SPI_WRITE_BIT_MASK      0x80
 #define CLOCK_SPEED_MHZ         5
@@ -127,16 +168,9 @@ typedef struct {
 #define IRQ_TX_DONE_MASK               0x08
 #define IRQ_RX_DONE_MASK               0x40
 #define IRQ_PAYLOAD_CRC_ERROR_MASK     0x20
+#define IRQ_VALID_HEADER_MASK          0x10
 #define MAX_PAYLOAD_LENGTH      (255 - RFM9X_HEADER_LEN)
 
-// ===== LoRa application packet framing =====
-// Every jacket broadcasts on the same channel (RadioHead header is always
-// TO=FROM=0xff, i.e. no radio-level addressing), so the app-layer payload
-// carries its own type tag + sender name. This lets two (or more) jackets
-// tell each other's sensor packets and chat messages apart, and lets the
-// receiving jacket relay each one to the phone tagged with the right node
-// name (see BleUuids/BleService on the Flutter side for the matching
-// "<node>:..." wire format).
 #define LORA_PKT_SENSOR 0xA1
 #define LORA_PKT_CHAT    0xA2
 
@@ -144,8 +178,8 @@ typedef struct {
 
 #pragma pack(push, 1)
 typedef struct {
-    uint8_t type;                     // LORA_PKT_*
-    char    node[NODE_NAME_MAX_LEN];  // sender's NODE_NAME, NUL-padded
+    uint8_t type;
+    char    node[NODE_NAME_MAX_LEN];
 } lora_pkt_header_t;
 
 typedef struct {
@@ -155,17 +189,14 @@ typedef struct {
 
 typedef struct {
     lora_pkt_header_t header;
-    char target[NODE_NAME_MAX_LEN];   // recipient NODE_NAME, or "ALL"
-    char text[LORA_CHAT_MAX_LEN];     // NUL-terminated chat message
+    char target[NODE_NAME_MAX_LEN];
+    char text[LORA_CHAT_MAX_LEN];
 } lora_chat_packet_t;
 #pragma pack(pop)
 
 static_assert(sizeof(lora_sensor_packet_t) <= MAX_PAYLOAD_LENGTH, "sensor packet too large for LoRa payload");
 static_assert(sizeof(lora_chat_packet_t) <= MAX_PAYLOAD_LENGTH, "chat packet too large for LoRa payload");
 
-// Outgoing chat messages queued from the BLE text-characteristic write
-// callback (runs on the BLE stack's task) and drained by lora_task, which
-// owns the SPI bus / RF switch and must not be touched from another task.
 typedef struct {
     char target[NODE_NAME_MAX_LEN];
     char text[LORA_CHAT_MAX_LEN];
@@ -179,7 +210,7 @@ static QueueHandle_t chat_tx_queue = NULL;
 #define GPIO_NUM_SCLK   GPIO_NUM_7
 #define GPIO_NUM_CS     GPIO_NUM_11
 #define GPIO_NUM_RST    GPIO_NUM_10
-#define GPIO_NUM_G0     GPIO_NUM_21  // DIO0, didefinisikan tapi belum dipakai di kode
+#define GPIO_NUM_G0     GPIO_NUM_21
 #define RX_EN           GPIO_NUM_12
 #define TX_EN           GPIO_NUM_13
 
@@ -318,13 +349,13 @@ void setTxPower(int8_t power)
     vTaskDelay(pdMS_TO_TICKS(2));
 
     if (power == 20) {
-        paDac    = 0x87;     // +20 dBm enable
+        paDac    = 0x87;
         paConfig = 0x80 | 0x0F;
-        ocpTrim  = 18;       // ~130 mA SAFE
+        ocpTrim  = 18;
     } else {
         paDac    = 0x84;
         paConfig = 0x80 | ((power >= 17) ? 15 : (power - 2));
-        ocpTrim  = 12;       // ~100 mA
+        ocpTrim  = 12;
     }
 
     register_write(RFM9X_4D_REG_PA_DAC, paDac);
@@ -483,10 +514,23 @@ void setRxMode()
     register_write(RFM9X_40_REG_DIO_MAPPING1, 0x00);
 }
 
+bool lora_channel_busy(void)
+{
+    return (register_read(RFM9X_12_REG_IRQ_FLAGS) & IRQ_VALID_HEADER_MASK) != 0;
+}
+
+void lora_wait_channel_clear(void)
+{
+    for (int i = 0; i < 50 && lora_channel_busy(); i++) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+}
+
 void lora_send(uint8_t *data, uint8_t length)
 {
     uint8_t identifier = 1;
 
+    lora_wait_channel_clear();
     set_tx_enable();
 
     setRegOpMode(RFM9X_MODE_STDBY);
@@ -507,16 +551,6 @@ void lora_send(uint8_t *data, uint8_t length)
 
     setRegOpMode(RFM9X_MODE_TX);
     TickType_t start = xTaskGetTickCount();
-    // Time-on-air at the current BW=62.5kHz/SF10 settings runs ~16.4ms/symbol,
-    // so a near-MAX_PAYLOAD_LENGTH packet (the chat packet, ~165 bytes with
-    // header, vs. the sensor packet's ~35) can take upwards of 3.1s to
-    // actually finish transmitting - longer than the old fixed 3000ms
-    // timeout. That caused every chat send to "time out" here while the
-    // radio was still physically mid-TX, and the immediately-following
-    // opmode/RX register writes (issued while the chip was still busy)
-    // wedged the radio/SPI state, hanging lora_task forever and taking
-    // the whole board down via the task watchdog. Give it enough margin
-    // for the largest payload this app ever sends.
     TickType_t timeout = pdMS_TO_TICKS(8000);
 
     bool timed_out = false;
@@ -547,11 +581,14 @@ void lora_send_sensor_packet(const data_packet_t *data)
 
 void lora_send_chat_packet(const char *target, const char *text)
 {
+    if (target == NULL || target[0] == '\0') target = "ALL";
+    if (text == NULL || text[0] == '\0') return;
+
     lora_chat_packet_t out = {};
     out.header.type = LORA_PKT_CHAT;
-    strncpy(out.header.node, NODE_NAME, NODE_NAME_MAX_LEN - 1);
-    strncpy(out.target, target, NODE_NAME_MAX_LEN - 1);
-    strncpy(out.text, text, LORA_CHAT_MAX_LEN - 1);
+    snprintf(out.header.node, sizeof(out.header.node), "%s", NODE_NAME);
+    snprintf(out.target, sizeof(out.target), "%s", target);
+    snprintf(out.text, sizeof(out.text), "%s", text);
     printf("[CHAT] TX -> target=%s text=\"%s\"\n", out.target, out.text);
     lora_send((uint8_t *)&out, sizeof(out));
 }
@@ -561,7 +598,6 @@ void lora_send_ack(void)
     lora_send((uint8_t *)"ACK", 3);
 }
 
-// ===== GPS (NEO-M8N) =====
 #define GPS_BAUD       9600
 #define GPS_RXD        2
 #define GPS_TXD        3
@@ -666,7 +702,6 @@ void i2c_unlock()
     xSemaphoreGive(i2c_mutex);
 }
 
-// ===== MAX30102 =====
 #define MAX30102_I2C_ADDR 0x57
 
 #define MAX30102_INTERRUPT_STATUS_1 0x00
@@ -813,7 +848,6 @@ esp_err_t max30102_print_registers(max30102_t *self)
     return ESP_OK;
 }
 
-// ===== TMP117 =====
 #define TMP117_ADDR       0x49
 #define TMP117_TEMP_REG   0x00
 #define TMP117_CONFIG_REG 0x01
@@ -881,24 +915,20 @@ float TMP117_to_celsius(int16_t raw)
     return raw * 0.0078125f;
 }
 
-// ===== BLE GATT server =====
 #define GATTS_TAG "GATTS_SERVER"
 
-#define GATTS_SERVICE_UUID_TEST_A     0x00FF  // HR & SpO2
+#define GATTS_SERVICE_UUID_TEST_A     0x00FF
 #define GATTS_CHAR_UUID_TEST_A_VITALS 0xFF01
 
-#define GATTS_SERVICE_UUID_TEST_B       0x00EE  // Lat & Lon
+#define GATTS_SERVICE_UUID_TEST_B       0x00EE
 #define GATTS_CHAR_UUID_TEST_B_LOCATION 0xEE01
 
-#define GATTS_SERVICE_UUID_TEST_C     0x00DD  // Temperature
+#define GATTS_SERVICE_UUID_TEST_C     0x00DD
 #define GATTS_CHAR_UUID_TEST_C_TEMP   0xDD01
 
-#define GATTS_SERVICE_UUID_TEST_D     0x00CC  // Text / status (dipakai juga utk laporan paket peer)
+#define GATTS_SERVICE_UUID_TEST_D     0x00CC
 #define GATTS_CHAR_UUID_TEST_D_TEXT   0xCC01
 
-// Kept as a prefix (not the full name) so every jacket still matches the
-// Flutter app's scan filter (BleUuids.deviceNameFilter = "ESP-BLE",
-// substring match) while advertising a distinct, per-node name.
 #define TEST_DEVICE_NAME_PREFIX       "JKT-BLE-"
 
 static float heart_rate = 0.0f;
@@ -926,6 +956,7 @@ class JacketServerCallbacks : public BLEServerCallbacks {
     void onDisconnect(BLEServer *server) override {
         ble_device_connected = false;
         ESP_LOGI(GATTS_TAG, "BLE client disconnected, restart advertising");
+        vTaskDelay(pdMS_TO_TICKS(500));
         BLEDevice::startAdvertising();
     }
 };
@@ -1010,11 +1041,6 @@ class TempCharCallbacks : public BLECharacteristicCallbacks {
     }
 };
 
-// Shared by BLE chat writes and Serial Monitor input: updates user_text and
-// queues the message for LoRa transmit as "<target>:<message>" (bare text
-// is treated as a broadcast) - see BleService.sendMessage() on the Flutter
-// side. The actual LoRa transmit is handed off to lora_task via
-// chat_tx_queue rather than touching the shared SPI/radio state here.
 void submit_chat_text(const char *raw)
 {
     if (raw[0] == '\0') return;
@@ -1044,11 +1070,6 @@ void submit_chat_text(const char *raw)
     }
 }
 
-// Phone -> jacket chat writes arrive here as "<target>:<message>" (or a
-// bare message, treated as a broadcast) - see BleService.sendMessage() on
-// the Flutter side. The BLE stack calls this from its own task, so the
-// actual LoRa transmit is handed off to lora_task via chat_tx_queue
-// rather than touching the shared SPI/radio state directly here.
 class TextCharCallbacks : public BLECharacteristicCallbacks {
     void onRead(BLECharacteristic *chr) override {
         char buf[NODE_NAME_MAX_LEN + 8 + sizeof(user_text)];
@@ -1081,9 +1102,6 @@ void send_notification_to_all_services(void)
     charTemp->notify();
 }
 
-/// Relays one peer jacket's chat message onto the text characteristic,
-/// tagged with the peer's own node name so the phone files it under that
-/// node's chat room instead of ours (see BleService._onTextData).
 void ble_notify_incoming_chat(const char *sender_node, const char *text)
 {
     if (!ble_device_connected) return;
@@ -1093,10 +1111,6 @@ void ble_notify_incoming_chat(const char *sender_node, const char *text)
     charText->notify();
 }
 
-/// Relays one peer jacket's sensor packet onto the vitals/location/temp
-/// characteristics, tagged with the peer's node name so the phone tracks
-/// it as its own LoraNode entry (see BleService._onVitalsData etc.)
-/// instead of merging it into our own telemetry.
 void ble_notify_incoming_sensor(const char *sender_node, const data_packet_t *remote_pkt)
 {
     if (!ble_device_connected) return;
@@ -1209,7 +1223,6 @@ void ble_server_init(void)
     ESP_LOGI(GATTS_TAG, "BLE advertising started as \"%s\"", device_name);
 }
 
-// ===== Sensor DSP: SpO2 & Heart Rate =====
 #define BUFFER_SIZE 256
 #define SAMPLE_RATE 50.0f
 #define MIN_BPM 40.0f
@@ -1402,9 +1415,6 @@ float calculate_heart_rate(uint16_t ir[], int size)
     return filtered_bpm;
 }
 
-/// A peer jacket's own sensor packet, received over LoRa. Relayed to the
-/// phone tagged with the peer's node name so it shows up as its own
-/// LoraNode entry, distinct from our own telemetry.
 void handle_remote_sensor_packet(const char *sender_node, const data_packet_t *rpkt)
 {
     float r_lat  = rpkt->lat_x1e6 / 1e6f;
@@ -1424,9 +1434,6 @@ void handle_remote_sensor_packet(const char *sender_node, const data_packet_t *r
     ble_notify_incoming_sensor(sender_node, rpkt);
 }
 
-/// A chat message from a peer jacket, received over LoRa. Relayed to the
-/// phone only if it's addressed to us or broadcast to everyone - see
-/// BleService._onTextData for how the phone files it by sender node.
 void handle_remote_chat_packet(const char *sender_node, const char *target, const char *text)
 {
     printf("[LoRa RX] ----- Chat diterima dari %s (target=%s) -----\n", sender_node, target);
@@ -1516,10 +1523,8 @@ void max30102_task(void *arg)
                     if (bpm == -1.0f || spo2 == -1.0f) {
                         update_max30102_sensor_data(0, 0);
                         bpm = 0.0; spo2 = 0.0;
-                        //printf("[MAX30102] Jari tidak terdeteksi\n");
                     } else {
                         update_max30102_sensor_data(bpm, spo2);
-                        //printf("[MAX30102] HR: %.1f bpm | SpO2: %.1f %%\n", bpm, spo2);
                     }
 
                     if (xSemaphoreTake(datasent_mutex_max30102, portMAX_DELAY) == pdTRUE) {
@@ -1528,7 +1533,6 @@ void max30102_task(void *arg)
                         xSemaphoreGive(datasent_mutex_max30102);
                     }
                 } else {
-                    //printf("[MAX30102] FIFO READ ERROR!\n");
                 }
             }
         }
@@ -1543,11 +1547,6 @@ void gps_task(void *arg)
 
         update_gps_sensor_data(coordinate.latitude, coordinate.longitude);
 
-        //if (coordinate.latitude == 0.0 && coordinate.longitude == 0.0) {
-        //    printf("[GPS] Belum ada fix\n");
-        //} else {
-        //    printf("[GPS] Lat: %.6f  Lon: %.6f\n", coordinate.latitude, coordinate.longitude);
-        //}
 
         if (xSemaphoreTake(datasent_mutex_gps, portMAX_DELAY) == pdTRUE) {
             gps_data.lat = (int32_t)(coordinate.latitude * 1e6);
@@ -1565,7 +1564,6 @@ void TMP117_task(void *arg)
     while (1) {
         int16_t raw = TMP117_read_raw();
         if (!raw) {
-            //printf("[TMP117] Gagal membaca sensor, mencoba lagi...\n");
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
@@ -1583,10 +1581,6 @@ void TMP117_task(void *arg)
     }
 }
 
-/// Listens for up to timeout_ms, dispatching whatever comes in: an ACK
-/// (sets *ack_received), a peer sensor packet, or a peer chat message.
-/// Both types of inbound app packets get ACKed back immediately, using
-/// the same RF-switch/mode dance lora_send() expects.
 void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
 {
     static uint8_t rxBuffer[MAX_PAYLOAD_LENGTH + 1];
@@ -1651,17 +1645,22 @@ void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
                 set_tx_enable();
                 lora_send_ack();
                 set_rx_enable();
-            } else if (payload_len == sizeof(lora_chat_packet_t) &&
-                       rxBuffer[0] == LORA_PKT_CHAT) {
-                lora_chat_packet_t in;
-                memcpy(&in, rxBuffer, sizeof(in));
-                in.header.node[NODE_NAME_MAX_LEN - 1] = '\0';
-                in.target[NODE_NAME_MAX_LEN - 1] = '\0';
-                in.text[LORA_CHAT_MAX_LEN - 1] = '\0';
-                handle_remote_chat_packet(in.header.node, in.target, in.text);
-                set_tx_enable();
-                lora_send_ack();
-                set_rx_enable();
+            } else if (payload_len > 0 && rxBuffer[0] == LORA_PKT_CHAT) {
+                if (payload_len < (int)offsetof(lora_chat_packet_t, text)) {
+                    printf("[LoRa RX] Chat packet truncated: got %d bytes, expected at least %zu\n",
+                           payload_len, offsetof(lora_chat_packet_t, text));
+                } else {
+                    lora_chat_packet_t in = {};
+                    size_t copy_len = (payload_len < sizeof(in)) ? payload_len : sizeof(in);
+                    memcpy(&in, rxBuffer, copy_len);
+                    in.header.node[sizeof(in.header.node) - 1] = '\0';
+                    in.target[sizeof(in.target) - 1] = '\0';
+                    in.text[sizeof(in.text) - 1] = '\0';
+                    handle_remote_chat_packet(in.header.node, in.target, in.text);
+                    set_tx_enable();
+                    lora_send_ack();
+                    set_rx_enable();
+                }
             } else if (payload_len > 0) {
                 printf("[LoRa RX] Unknown packet (%d bytes)\n", payload_len);
             }
@@ -1670,54 +1669,30 @@ void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
     }
 }
 
-// How often this node broadcasts its own sensor packet. Gates the beacon
-// by elapsed time (instead of a flat vTaskDelay after each send) so the
-// radio is never taken off-air waiting for the next beacon - see
-// lora_task() below.
 #define SENSOR_BEACON_INTERVAL_MS 4000
 
-// Size of each listening slice inside lora_task's main loop. Small enough
-// that the outgoing-chat queue and the sensor-beacon timer both stay
-// responsive (worst case ~this many ms of added latency), but each slice
-// still re-arms RXCONTINUOUS itself (see lora_listen_and_dispatch), so
-// nothing is lost switching between slices.
+#define SENSOR_BEACON_JITTER_MS 1500
+
 #define LORA_LISTEN_SLICE_MS 200
 
-// Kirim pesan chat yang di-queue dari BLE sesegera mungkin, kirim paket
-// sensor sendiri secara berkala, dan SISANYA dihabiskan mendengarkan -
-// TX dan RX dalam satu task, tapi radio tetap standby RX kapan pun tidak
-// sedang mengirim, bukan dimatikan.
-//
-// Versi sebelumnya mengirim lalu mendengar singkat (<=1 detik) lalu
-// mematikan switch RX/TX selama 3 detik penuh setiap siklus - karena
-// setiap jaket menjalankan siklus dengan periode yang nyaris sama persis,
-// itu bisa membuat jendela "dengar" satu jaket terus-menerus jatuh pas
-// jaket lain sedang di fase "mati", sehingga paket dari LoRa lain (data
-// sensor maupun chat) nyaris tidak pernah tertangkap walau pengiriman
-// sendiri terlihat normal. Sekarang radio dibiarkan menyala mendengar
-// hampir sepanjang waktu dan hanya berpindah ke TX sesaat saat benar-benar
-// mengirim, lalu langsung kembali ke RX.
 void lora_task(void *arg)
 {
     esp_task_wdt_add(NULL);
     chat_tx_item_t chat_item;
     TickType_t last_beacon = xTaskGetTickCount() - pdMS_TO_TICKS(SENSOR_BEACON_INTERVAL_MS);
+    uint32_t next_beacon_interval_ms = SENSOR_BEACON_INTERVAL_MS + (esp_random() % SENSOR_BEACON_JITTER_MS);
 
     set_rx_enable();
     setRxMode();
 
     while (1) {
-        // Drain outgoing chat messages queued by the BLE text write
-        // callback first, so chat feels responsive even if it lands
-        // mid-cycle.
         while (xQueueReceive(chat_tx_queue, &chat_item, 0) == pdTRUE) {
             lora_send_chat_packet(chat_item.target, chat_item.text);
-            // lora_send() meninggalkan switch RF di posisi TX, pindah ke RX dulu
             set_rx_enable();
             setRxMode();
         }
 
-        if ((xTaskGetTickCount() - last_beacon) >= pdMS_TO_TICKS(SENSOR_BEACON_INTERVAL_MS)) {
+        if ((xTaskGetTickCount() - last_beacon) >= pdMS_TO_TICKS(next_beacon_interval_ms)) {
             bool got_gps = xSemaphoreTake(datasent_mutex_gps, pdMS_TO_TICKS(100)) == pdTRUE;
             bool got_max30102 = got_gps && xSemaphoreTake(datasent_mutex_max30102, pdMS_TO_TICKS(100)) == pdTRUE;
             bool got_TMP117 = got_max30102 && xSemaphoreTake(datasent_mutex_TMP117, pdMS_TO_TICKS(100)) == pdTRUE;
@@ -1735,7 +1710,6 @@ void lora_task(void *arg)
 
                 lora_send_sensor_packet(&pkt);
 
-                // lora_send() meninggalkan switch RF di posisi TX, pindah ke RX dulu
                 set_rx_enable();
                 setRxMode();
 
@@ -1743,27 +1717,18 @@ void lora_task(void *arg)
                 xSemaphoreGive(datasent_mutex_max30102);
                 xSemaphoreGive(datasent_mutex_TMP117);
             } else {
-                // Release whichever of the three were actually acquired above -
-                // otherwise a partial acquire (e.g. gps taken, max30102 timed
-                // out) would leak that mutex forever and deadlock its task.
                 if (got_max30102) xSemaphoreGive(datasent_mutex_max30102);
                 if (got_gps) xSemaphoreGive(datasent_mutex_gps);
             }
 
             last_beacon = xTaskGetTickCount();
+            next_beacon_interval_ms = SENSOR_BEACON_INTERVAL_MS + (esp_random() % SENSOR_BEACON_JITTER_MS);
         }
 
-        // Spend the rest of the cycle actually listening for peers (sensor
-        // packets, chat, ACKs) instead of sleeping with the radio off-air.
         lora_listen_and_dispatch(LORA_LISTEN_SLICE_MS, NULL);
     }
 }
 
-// Prints WHY the chip last restarted. This survives across the reboot
-// itself (unlike a Guru Meditation dump, which scrolls by right before the
-// reset and is easy to miss), so it's the first thing to check when
-// "it just reboots and I can't read the error in time" - the reason
-// shows up clearly on the *next* boot instead.
 static const char *reset_reason_to_str(esp_reset_reason_t reason)
 {
     switch (reason) {
@@ -1786,6 +1751,8 @@ void setup()
     Serial.begin(115200);
     vTaskDelay(pdMS_TO_TICKS(200));
     printf("\n===== BOOT: last reset reason = %s =====\n\n", reset_reason_to_str(esp_reset_reason()));
+
+    apply_unique_mac_from_node_name();
 
     esp_task_wdt_config_t wdt_config = {
         .timeout_ms = 10000,
@@ -1851,8 +1818,6 @@ void setup()
     xTaskCreatePinnedToCore(lora_task, "lora_task", 4096, NULL, 7, NULL, 1);
 }
 
-// Typing a line into the Serial Monitor and pressing enter sends it as a
-// chat message, same as a phone app write to charText (see submit_chat_text).
 void loop()
 {
     static char serial_buf[LORA_CHAT_MAX_LEN];

@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Shared white rounded-card container used by every section on the
-/// home screen.
 class SectionCard extends StatelessWidget {
   final Widget child;
 

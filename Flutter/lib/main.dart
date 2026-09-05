@@ -21,7 +21,6 @@ class SmartJacketApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BleService()),
-        // Drives Strings(...) everywhere - see LanguageCard for the picker.
         ChangeNotifierProvider(create: (_) => LocaleService()),
       ],
       child: MaterialApp(

@@ -6,8 +6,6 @@ import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
-/// 2x2 grid of device-level status indicators: Bluetooth, GPS,
-/// connection, and (always-on) security.
 class SystemStatusCard extends StatelessWidget {
   final bool bluetoothEnabled;
   final bool gpsActive;

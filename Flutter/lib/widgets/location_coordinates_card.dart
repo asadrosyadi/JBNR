@@ -7,12 +7,6 @@ import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
-/// "Your Location" readout plus a coordinate tile for every connected
-/// LoRa node - always all of them, independent of the node picked in
-/// [NodeSelectorCard]. "Your Location" always leads the grid (still
-/// visually distinct via [_CoordinateTile.highlighted]) sharing its row
-/// with the first LoRa reading, then every following node fills the
-/// same responsive 2-column grid after it.
 class LocationCoordinatesCard extends StatelessWidget {
   final double? myLatitude;
   final double? myLongitude;
@@ -49,12 +43,6 @@ class LocationCoordinatesCard extends StatelessWidget {
             builder: (context, constraints) {
               const spacing = 12.0;
               final tileWidth = (constraints.maxWidth - spacing) / 2;
-              // "Your Location" always leads the grid so it shares its row
-              // with the first LoRa node instead of sitting alone on a
-              // full-width row above a separate, disproportionately small
-              // node grid. Total count (1 + every node) staying odd is what
-              // pushes the trailing tile to full width - keeps it from
-              // being squeezed into a half-width cell next to empty space.
               final tileCount = 1 + nodes.length;
               final lastIsOdd = tileCount.isOdd;
               Widget tileAt(int i) {

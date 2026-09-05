@@ -11,14 +11,6 @@ import '../services/map_tile_downloader.dart';
 import '../services/offline_first_tile_provider.dart';
 import '../theme/app_colors.dart';
 
-/// Live map preview (OpenStreetMap tiles, auto-cached to disk by
-/// flutter_map for offline use - free, no API key) showing the phone's
-/// own position and every connected LoRa node at once. Always plots
-/// every node, regardless of which one is picked in the node selector
-/// dropdown - that filter only affects the detail cards, not tracking.
-///
-/// This preview is a static, non-interactive thumbnail; tap it to open
-/// [FullMapScreen] for pinch-to-zoom/pan and per-node direction info.
 class LiveMapCard extends StatelessWidget {
   final double? myLatitude;
   final double? myLongitude;
@@ -76,8 +68,6 @@ class LiveMapCard extends StatelessWidget {
                           padding: const EdgeInsets.all(24),
                         )
                       : null,
-                  // This is only a thumbnail - real interaction happens in
-                  // FullMapScreen after tapping it.
                   interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
                 ),
                 children: [

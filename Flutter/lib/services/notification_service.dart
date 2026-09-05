@@ -1,8 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-/// Pops a system notification (heads-up banner, like WhatsApp/SMS) for
-/// incoming LoRa chat messages so they're noticed even when the app
-/// isn't in the foreground or the Chat tab isn't open.
 class NotificationService {
   NotificationService._();
 
@@ -35,8 +32,6 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
           ?.requestPermissions(alert: true, badge: true, sound: true);
     } catch (_) {
-      // Notification setup can fail on unsupported/desktop test targets -
-      // the app should keep working without popups in that case.
     }
   }
 
@@ -49,7 +44,6 @@ class NotificationService {
         const NotificationDetails(android: _androidChannel, iOS: DarwinNotificationDetails()),
       );
     } catch (_) {
-      // Ignore - a missed popup shouldn't crash message handling.
     }
   }
 }

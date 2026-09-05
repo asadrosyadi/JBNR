@@ -31,10 +31,6 @@ class _StatusDot extends StatelessWidget {
   }
 }
 
-/// Row of three status indicators: connection, GPS, and how many
-/// jacket devices are currently visible in the scan. Sits at the dark
-/// end of the header gradient, so labels are light and only the dot
-/// color communicates active/inactive.
 class StatusBar extends StatelessWidget {
   final bool connected;
   final bool connecting;

@@ -18,12 +18,6 @@ import '../services/map_tile_downloader.dart';
 import '../services/offline_first_tile_provider.dart';
 import '../theme/app_colors.dart';
 
-/// Fullscreen, fully-interactive live map (pinch to zoom, drag to pan).
-/// Tapping a LoRa node marker draws a line from your position to it and
-/// shows the straight-line distance/bearing - like tapping a pin's
-/// "directions" in Google Maps, but offline-friendly since there's no
-/// routing/road network involved. Also offers downloading the currently
-/// visible area for guaranteed offline use later.
 class FullMapScreen extends StatefulWidget {
   const FullMapScreen({super.key});
 
@@ -61,11 +55,6 @@ class _FullMapScreenState extends State<FullMapScreen> {
     );
   }
 
-  /// Hands off turn-by-turn walking/driving directions to [node] to
-  /// whatever maps app the phone already has (Google Maps if installed,
-  /// otherwise the browser) - actual road-network routing needs a
-  /// routing service this app doesn't have, so rather than reinvent
-  /// that, this defers to an app that already does it well.
   Future<void> _openDirections(LoraNode node) async {
     if (!node.hasFix) return;
     final uri = Uri.https('www.google.com', '/maps/dir/', {
@@ -103,10 +92,6 @@ class _FullMapScreenState extends State<FullMapScreen> {
     );
     if (result == null || !mounted) return;
 
-    // Tapped a place that's already been downloaded before - just jump
-    // to it, since it's already sitting in the cache and doesn't need
-    // fetching again. Re-downloading is a separate, explicit action
-    // (the refresh icon next to it in the list).
     if (result.existing != null) {
       final area = result.existing!;
       _mapController.fitCamera(
@@ -171,9 +156,6 @@ class _FullMapScreenState extends State<FullMapScreen> {
       ),
     );
 
-    // Full detail all the way to OSM's usual max zoom, as requested -
-    // the confirmation dialog in `_downloadArea` warns loudly before
-    // committing to a download this size.
     const minZoom = 12;
     const maxZoom = 19;
     final completed = await _downloadArea(
@@ -195,14 +177,8 @@ class _FullMapScreenState extends State<FullMapScreen> {
     }
   }
 
-  /// Above this many tiles, the confirmation dialog shows an explicit
-  /// warning - large downloads take a long time, use a lot of storage,
-  /// and place a real load on OpenStreetMap's free, volunteer-run tile
-  /// server.
   static const _largeDownloadThreshold = 5000;
 
-  /// Returns whether the download actually completed (`false` if the
-  /// user cancelled the confirmation dialog or the download itself).
   Future<bool> _downloadArea({
     required LatLngBounds bounds,
     required int minZoom,
@@ -214,11 +190,6 @@ class _FullMapScreenState extends State<FullMapScreen> {
       minZoom: minZoom,
       maxZoom: maxZoom,
     );
-    // ~15 KB/tile is typical for OSM's raster PNG tiles. ~200ms/tile
-    // reflects 2 tiles downloading in parallel (see
-    // MapTileDownloader._concurrency) at a rough ~400ms/tile network
-    // round-trip each. Both are rough estimates, but enough to set
-    // expectations - actual speed still depends on the connection.
     final estimatedBytes = tileCount * 15360;
     final estimatedSeconds = tileCount * 0.2;
     final isLargeDownload = tileCount > _largeDownloadThreshold;
@@ -489,8 +460,6 @@ class _FullMapScreenState extends State<FullMapScreen> {
   }
 }
 
-/// Prominent progress bar shown over the map while a region download
-/// is running - percentage, tile count, and a cancel button.
 class _DownloadProgressBar extends StatelessWidget {
   final double progress;
   final int downloadedTiles;
@@ -566,9 +535,6 @@ class _DownloadProgressBar extends StatelessWidget {
   }
 }
 
-/// Bottom panel shown after tapping a node - distance, compass label,
-/// and an arrow rotated to the true bearing towards it, similar to a
-/// "get directions" pin callout.
 class _DirectionPanel extends StatelessWidget {
   final LoraNode node;
   final double? myLatitude;
@@ -671,11 +637,6 @@ class _DirectionPanel extends StatelessWidget {
   }
 }
 
-/// Result of [_PlaceSearchDialog]: either a freshly typed [query] to
-/// geocode, or an [existing] previously-downloaded area picked
-/// straight from the history list - [redownload] tells the caller
-/// whether that pick was "just show me this place" (the default, no
-/// network needed) or an explicit "fetch it again" request.
 class _PlaceSearchResult {
   final String? query;
   final DownloadedArea? existing;
@@ -686,11 +647,6 @@ class _PlaceSearchResult {
     : query = null;
 }
 
-/// "Type a place name" prompt - a city, a mountain, a campus, a
-/// landmark, anything Nominatim can find. Also lists places already
-/// downloaded before (matching what's typed so far): tapping one just
-/// jumps to it (it's already cached, no need to fetch anything), while
-/// its refresh icon explicitly re-downloads it.
 class _PlaceSearchDialog extends StatefulWidget {
   final List<DownloadedArea> downloadedAreas;
 

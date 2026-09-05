@@ -8,10 +8,6 @@ import '../services/ble_service.dart';
 import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 
-/// Chat tab: a room list, like WhatsApp's chat list - one room for
-/// broadcasting to every LoRa node, and a separate personal room per
-/// node, so the two never mix in the same timeline. Tapping a room
-/// opens [ChatRoomScreen] for that conversation.
 class ChatTab extends StatelessWidget {
   const ChatTab({super.key});
 
@@ -20,7 +16,7 @@ class ChatTab extends StatelessWidget {
     final ble = context.watch<BleService>();
     final s = Strings(context.watch<LocaleService>().language);
     final messages = ble.messages;
-    final nodeNames = ble.nodeList.map((n) => n.name).toList();
+    final nodeNames = ble.otherNodeList.map((n) => n.name).toList();
 
     final broadcastMessages = messages
         .where((m) => !m.fromJacket && m.isBroadcast)
@@ -94,8 +90,6 @@ class ChatTab extends StatelessWidget {
   }
 }
 
-/// Confirms, then deletes every message in a room at once - like WA's
-/// "Delete chat".
 Future<void> _confirmDeleteRoom(
   BuildContext context,
   BleService ble,
