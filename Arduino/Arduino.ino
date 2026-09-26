@@ -176,6 +176,17 @@ void handle_remote_sensor_packet(const char *sender_node, const data_packet_t *r
 
 #define LORA_CHAT_MAX_LEN 128
 
+// A whole chat packet (header + target + up to 128 chars of text) is
+// ~165 bytes on air - much bigger than a sensor packet (~35 bytes) or an
+// ACK (~7 bytes), so on a weak/marginal link it has a much higher chance
+// of picking up a bit error and failing CRC. Chat text is instead split
+// into small fixed-size chunks, each sent (and individually ACKed/
+// retried - see lora_send_chat_with_retry) as its own small packet, then
+// reassembled on the receiving end (see chat_reassembly_feed) - a lost
+// chunk only costs a retry of that one chunk, not the whole message.
+#define LORA_CHAT_FRAG_CHUNK 24
+#define LORA_CHAT_MAX_FRAGS  ((LORA_CHAT_MAX_LEN + LORA_CHAT_FRAG_CHUNK - 1) / LORA_CHAT_FRAG_CHUNK)
+
 #pragma pack(push, 1)
 typedef struct {
     uint8_t type;
@@ -188,14 +199,18 @@ typedef struct {
 } lora_sensor_packet_t;
 
 typedef struct {
-    lora_pkt_header_t header;
-    char target[NODE_NAME_MAX_LEN];
-    char text[LORA_CHAT_MAX_LEN];
+    lora_pkt_header_t header;              // type=LORA_PKT_CHAT, node=sender
+    char    target[NODE_NAME_MAX_LEN];     // recipient NODE_NAME, or "ALL"
+    uint8_t msg_id;                        // identifies which message this chunk belongs to
+    uint8_t frag_index;                    // 0-based chunk index
+    uint8_t frag_count;                    // total chunks in this message
+    uint8_t frag_len;                      // valid bytes in frag_text (<= LORA_CHAT_FRAG_CHUNK)
+    char    frag_text[LORA_CHAT_FRAG_CHUNK]; // chunk of the message text - NOT NUL-terminated, use frag_len
 } lora_chat_packet_t;
 #pragma pack(pop)
 
 static_assert(sizeof(lora_sensor_packet_t) <= MAX_PAYLOAD_LENGTH, "sensor packet too large for LoRa payload");
-static_assert(sizeof(lora_chat_packet_t) <= MAX_PAYLOAD_LENGTH, "chat packet too large for LoRa payload");
+static_assert(sizeof(lora_chat_packet_t) <= MAX_PAYLOAD_LENGTH, "chat fragment too large for LoRa payload");
 
 typedef struct {
     char target[NODE_NAME_MAX_LEN];
@@ -435,6 +450,22 @@ void enableCRC()
     register_write(RFM9X_1E_REG_MODEM_CONFIG2, regModemConfig2);
 }
 
+// RegModemConfig3 was never written, so both stayed off:
+//  - LowDataRateOptimize (bit 3): the datasheet requires it whenever the
+//    symbol time exceeds 16 ms. SF10 at 62.5 kHz is 16.4 ms. Without it
+//    the receiver loses lock mid-packet when the two boards' crystals
+//    differ slightly, which hits long packets (chat, 65 bytes) but not
+//    short ones (sensor, 35 bytes) and can fail in only one direction.
+//  - AgcAutoOn (bit 2): otherwise the LNA gain is fixed at maximum, which
+//    overloads the receiver when the boards are close together.
+// Both boards must run this same setting or they cannot decode each other.
+void enableLowDataRateOptimizeAndAgc()
+{
+    uint8_t regModemConfig3 = register_read(RFM9X_26_REG_MODEM_CONFIG3);
+    regModemConfig3 |= 0x0C;
+    register_write(RFM9X_26_REG_MODEM_CONFIG3, regModemConfig3);
+}
+
 uint8_t getRegOpMode()
 {
     return register_read(RFM9X_01_REG_OP_MODE);
@@ -486,6 +517,7 @@ void radio_init(void)
     setBandwidth(62.5e3);
     setCodingRate(4);
     setSpreadingFactor(10);
+    enableLowDataRateOptimizeAndAgc();
     enableCRC();
     setExplicitHeaderMode();
 
@@ -579,17 +611,24 @@ void lora_send_sensor_packet(const data_packet_t *data)
     lora_send((uint8_t *)&out, sizeof(out));
 }
 
-void lora_send_chat_packet(const char *target, const char *text)
+void lora_send_chat_fragment(const char *target, uint8_t msg_id,
+                              uint8_t frag_index, uint8_t frag_count,
+                              const char *chunk, uint8_t chunk_len)
 {
     if (target == NULL || target[0] == '\0') target = "ALL";
-    if (text == NULL || text[0] == '\0') return;
 
     lora_chat_packet_t out = {};
     out.header.type = LORA_PKT_CHAT;
     snprintf(out.header.node, sizeof(out.header.node), "%s", NODE_NAME);
     snprintf(out.target, sizeof(out.target), "%s", target);
-    snprintf(out.text, sizeof(out.text), "%s", text);
-    printf("[CHAT] TX -> target=%s text=\"%s\"\n", out.target, out.text);
+    out.msg_id = msg_id;
+    out.frag_index = frag_index;
+    out.frag_count = frag_count;
+    out.frag_len = chunk_len;
+    memcpy(out.frag_text, chunk, chunk_len);
+
+    printf("[CHAT] TX fragment %d/%d -> target=%s msg_id=%d len=%d\n",
+           frag_index + 1, frag_count, out.target, msg_id, chunk_len);
     lora_send((uint8_t *)&out, sizeof(out));
 }
 
@@ -956,6 +995,7 @@ class JacketServerCallbacks : public BLEServerCallbacks {
     void onDisconnect(BLEServer *server) override {
         ble_device_connected = false;
         ESP_LOGI(GATTS_TAG, "BLE client disconnected, restart advertising");
+        printf("[BLE] Phone disconnected\n");
         vTaskDelay(pdMS_TO_TICKS(500));
         BLEDevice::startAdvertising();
     }
@@ -1102,18 +1142,30 @@ void send_notification_to_all_services(void)
     charTemp->notify();
 }
 
-void ble_notify_incoming_chat(const char *sender_node, const char *text)
+// The phone can't tell a broadcast from a personal message by itself
+// (the LoRa target is stripped here), so the relay says which one it was:
+// "<sender>:Text:<msg>" = addressed to this jacket, "<sender>:Broadcast:<msg>"
+// = sent to everyone. The app files each into the matching chat room.
+void ble_notify_incoming_chat(const char *sender_node, const char *text, bool is_broadcast)
 {
-    if (!ble_device_connected) return;
-    char buf[NODE_NAME_MAX_LEN + 8 + LORA_CHAT_MAX_LEN];
-    int len = snprintf(buf, sizeof(buf), "%s:Text:%s", sender_node, text);
+    if (!ble_device_connected) {
+        printf("[BLE] No phone connected - dropping relay of %s's chat message\n", sender_node);
+        return;
+    }
+    char buf[NODE_NAME_MAX_LEN + 12 + LORA_CHAT_MAX_LEN];
+    int len = snprintf(buf, sizeof(buf), "%s:%s:%s", sender_node,
+                       is_broadcast ? "Broadcast" : "Text", text);
     charText->setValue((uint8_t *)buf, len);
     charText->notify();
+    printf("[BLE] Relayed %s's chat message to phone\n", sender_node);
 }
 
 void ble_notify_incoming_sensor(const char *sender_node, const data_packet_t *remote_pkt)
 {
-    if (!ble_device_connected) return;
+    if (!ble_device_connected) {
+        printf("[BLE] No phone connected - dropping relay of %s's sensor data\n", sender_node);
+        return;
+    }
     char buf[100];
     int len;
 
@@ -1134,6 +1186,8 @@ void ble_notify_incoming_sensor(const char *sender_node, const data_packet_t *re
     len = snprintf(buf, sizeof(buf), "%s:Temp:%.2f", sender_node, r_temp);
     charTemp->setValue((uint8_t *)buf, len);
     charTemp->notify();
+
+    printf("[BLE] Relayed %s's sensor data to phone\n", sender_node);
 }
 
 void update_sensor_data_and_notify(float bpm, float spo2, float lat, float lon, float temp)
@@ -1440,8 +1494,9 @@ void handle_remote_chat_packet(const char *sender_node, const char *target, cons
     printf("[LoRa RX] %s\n", text);
     printf("[LoRa RX] --------------------------\n");
 
-    if (strcmp(target, "ALL") == 0 || strcmp(target, NODE_NAME) == 0) {
-        ble_notify_incoming_chat(sender_node, text);
+    bool is_broadcast = (strcmp(target, "ALL") == 0);
+    if (is_broadcast || strcmp(target, NODE_NAME) == 0) {
+        ble_notify_incoming_chat(sender_node, text, is_broadcast);
     }
 }
 
@@ -1581,6 +1636,111 @@ void TMP117_task(void *arg)
     }
 }
 
+// Tick at which the most recent sensor beacon from a peer finished
+// arriving. A peer's beacon timer restarts when its own beacon ends, so
+// it stays silent for at least SENSOR_BEACON_INTERVAL_MS afterwards -
+// the best moment to start a chat fragment without colliding with it
+// (see lora_wait_for_peer_quiet_window). LoRa is half-duplex: a jacket
+// that starts its own beacon mid-fragment can't receive that fragment,
+// which is what made chat fail while the constantly-repeating sensor
+// beacons still looked fine.
+static volatile TickType_t lora_last_peer_beacon_rx_tick = 0;
+
+// Set whenever a chat fragment arrives so lora_task postpones this
+// jacket's own sensor beacon and keeps the channel quiet for the rest of
+// the incoming message and its ACKs.
+static volatile TickType_t lora_beacon_defer_tick = 0;
+
+// Last fully-delivered chat message. If the sender never heard our ACK it
+// retransmits the same fragment; without this it would be delivered to
+// the phone a second time.
+static char     chat_last_done_sender[NODE_NAME_MAX_LEN] = "";
+static uint8_t  chat_last_done_msg_id = 0;
+static bool     chat_last_done_valid = false;
+static TickType_t chat_last_done_tick = 0;
+
+// Reassembles an incoming chat message from the small fragments sent by
+// lora_send_chat_with_retry. Only tracks one in-flight incoming message
+// at a time, matched by (sender, msg_id) - simple and sufficient for the
+// two-jacket chat this app supports; a second sender's message arriving
+// mid-reassembly just restarts tracking for the new one, dropping the
+// older message's partial progress (rare in practice, and no worse than
+// the whole message getting lost the way it could before fragmentation).
+typedef struct {
+    bool    active;
+    char    sender[NODE_NAME_MAX_LEN];
+    char    target[NODE_NAME_MAX_LEN];
+    uint8_t msg_id;
+    uint8_t frag_count;
+    uint8_t got_count;
+    bool    got[LORA_CHAT_MAX_FRAGS];
+    size_t  total_len;
+    char    text[LORA_CHAT_MAX_LEN];
+} chat_reassembly_t;
+
+static chat_reassembly_t chat_rx = {0};
+
+void chat_reassembly_feed(const char *sender, const char *target, uint8_t msg_id,
+                           uint8_t frag_index, uint8_t frag_count,
+                           const char *chunk, uint8_t chunk_len)
+{
+    if (frag_count == 0 || frag_count > LORA_CHAT_MAX_FRAGS || frag_index >= frag_count ||
+        chunk_len > LORA_CHAT_FRAG_CHUNK) {
+        printf("[LoRa RX] Invalid chat fragment (index=%d count=%d len=%d), dropped\n",
+               frag_index, frag_count, chunk_len);
+        return;
+    }
+
+    if (!chat_rx.active && chat_last_done_valid &&
+        chat_last_done_msg_id == msg_id &&
+        strncmp(chat_last_done_sender, sender, sizeof(chat_last_done_sender)) == 0 &&
+        (xTaskGetTickCount() - chat_last_done_tick) < pdMS_TO_TICKS(15000)) {
+        printf("[LoRa RX] Duplicate chat fragment (retry of an already-delivered message), ignored\n");
+        return;
+    }
+
+    bool is_new_message = !chat_rx.active ||
+                           strncmp(chat_rx.sender, sender, sizeof(chat_rx.sender)) != 0 ||
+                           chat_rx.msg_id != msg_id;
+    if (is_new_message) {
+        memset(&chat_rx, 0, sizeof(chat_rx));
+        chat_rx.active = true;
+        snprintf(chat_rx.sender, sizeof(chat_rx.sender), "%s", sender);
+        snprintf(chat_rx.target, sizeof(chat_rx.target), "%s", target);
+        chat_rx.msg_id = msg_id;
+        chat_rx.frag_count = frag_count;
+    }
+
+    size_t offset = (size_t)frag_index * LORA_CHAT_FRAG_CHUNK;
+    if (offset + chunk_len >= sizeof(chat_rx.text)) {
+        printf("[LoRa RX] Chat fragment overflows reassembly buffer, dropped\n");
+        return;
+    }
+
+    if (!chat_rx.got[frag_index]) {
+        chat_rx.got[frag_index] = true;
+        chat_rx.got_count++;
+    }
+    memcpy(chat_rx.text + offset, chunk, chunk_len);
+    if (frag_index == (uint8_t)(frag_count - 1)) {
+        chat_rx.total_len = offset + chunk_len;
+    }
+
+    printf("[LoRa RX] Chat fragment %d/%d from %s (msg_id=%d) - %d/%d received\n",
+           frag_index + 1, frag_count, sender, msg_id, chat_rx.got_count, frag_count);
+
+    if (chat_rx.got_count >= chat_rx.frag_count) {
+        size_t end = (chat_rx.total_len < sizeof(chat_rx.text)) ? chat_rx.total_len : sizeof(chat_rx.text) - 1;
+        chat_rx.text[end] = '\0';
+        handle_remote_chat_packet(chat_rx.sender, chat_rx.target, chat_rx.text);
+        snprintf(chat_last_done_sender, sizeof(chat_last_done_sender), "%s", chat_rx.sender);
+        chat_last_done_msg_id = chat_rx.msg_id;
+        chat_last_done_tick = xTaskGetTickCount();
+        chat_last_done_valid = true;
+        chat_rx.active = false;
+    }
+}
+
 void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
 {
     static uint8_t rxBuffer[MAX_PAYLOAD_LENGTH + 1];
@@ -1635,9 +1795,13 @@ void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
 
             if (payload_len == 3 && memcmp(rxBuffer, "ACK", 3) == 0) {
                 printf("[LoRa RX] ACK received\n");
-                if (ack_received != NULL) *ack_received = true;
+                if (ack_received != NULL) {
+                    *ack_received = true;
+                    return;
+                }
             } else if (payload_len == sizeof(lora_sensor_packet_t) &&
                        rxBuffer[0] == LORA_PKT_SENSOR) {
+                lora_last_peer_beacon_rx_tick = xTaskGetTickCount();
                 lora_sensor_packet_t in;
                 memcpy(&in, rxBuffer, sizeof(in));
                 in.header.node[NODE_NAME_MAX_LEN - 1] = '\0';
@@ -1646,17 +1810,18 @@ void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
                 lora_send_ack();
                 set_rx_enable();
             } else if (payload_len > 0 && rxBuffer[0] == LORA_PKT_CHAT) {
-                if (payload_len < (int)offsetof(lora_chat_packet_t, text)) {
-                    printf("[LoRa RX] Chat packet truncated: got %d bytes, expected at least %zu\n",
-                           payload_len, offsetof(lora_chat_packet_t, text));
+                if (payload_len < (int)offsetof(lora_chat_packet_t, frag_text)) {
+                    printf("[LoRa RX] Chat fragment truncated: got %d bytes, expected at least %zu\n",
+                           payload_len, offsetof(lora_chat_packet_t, frag_text));
                 } else {
+                    lora_beacon_defer_tick = xTaskGetTickCount();
                     lora_chat_packet_t in = {};
                     size_t copy_len = (payload_len < sizeof(in)) ? payload_len : sizeof(in);
                     memcpy(&in, rxBuffer, copy_len);
                     in.header.node[sizeof(in.header.node) - 1] = '\0';
                     in.target[sizeof(in.target) - 1] = '\0';
-                    in.text[sizeof(in.text) - 1] = '\0';
-                    handle_remote_chat_packet(in.header.node, in.target, in.text);
+                    chat_reassembly_feed(in.header.node, in.target, in.msg_id,
+                                          in.frag_index, in.frag_count, in.frag_text, in.frag_len);
                     set_tx_enable();
                     lora_send_ack();
                     set_rx_enable();
@@ -1675,6 +1840,93 @@ void lora_listen_and_dispatch(uint32_t timeout_ms, bool *ack_received)
 
 #define LORA_LISTEN_SLICE_MS 200
 
+// Unlike sensor telemetry (which self-heals on the next beacon regardless
+// of whether the last one arrived), a chat message is a one-shot user
+// action - silently dropping a chunk because of a CRC error on a
+// borderline link is a real, user-visible problem. Retry each chunk a
+// few times, waiting briefly for the peer's per-chunk ACK after each
+// attempt, before giving up on the whole message.
+#define LORA_CHAT_MAX_ATTEMPTS  3
+#define LORA_CHAT_ACK_WAIT_MS   2000
+
+// Start a fragment only within LORA_CHAT_QUIET_WINDOW_MS of hearing the
+// peer's sensor beacon finish: its next beacon is then at least
+// SENSOR_BEACON_INTERVAL_MS away, longer than a fragment plus its ACK.
+// Give up waiting after LORA_CHAT_QUIET_MAX_WAIT_MS (longer than the
+// peer's max beacon spacing) so chat still goes out if the peer's
+// beacons can't be heard at all.
+#define LORA_CHAT_QUIET_WINDOW_MS    1500
+#define LORA_CHAT_QUIET_MAX_WAIT_MS  7000
+
+void lora_wait_for_peer_quiet_window(uint32_t max_wait_ms)
+{
+    TickType_t begin = xTaskGetTickCount();
+    while ((xTaskGetTickCount() - begin) < pdMS_TO_TICKS(max_wait_ms)) {
+        TickType_t heard = lora_last_peer_beacon_rx_tick;
+        if (heard != 0 && (xTaskGetTickCount() - heard) <= pdMS_TO_TICKS(LORA_CHAT_QUIET_WINDOW_MS)) {
+            return;
+        }
+        lora_listen_and_dispatch(100, NULL);
+    }
+}
+
+// Splits text into LORA_CHAT_FRAG_CHUNK-sized chunks and sends each one
+// as its own small packet (see lora_send_chat_fragment) - small packets
+// survive a weak link far better than one big ~165-byte packet would.
+// Each chunk is retried independently; if any chunk never gets ACKed
+// after LORA_CHAT_MAX_ATTEMPTS tries, the whole message is abandoned
+// (a partially-delivered message can't be reassembled on the other end
+// anyway, so there's no point sending the remaining chunks).
+void lora_send_chat_with_retry(const char *target, const char *text)
+{
+    static uint8_t next_msg_id = 0;
+
+    if (text == NULL) return;
+    size_t text_len = strlen(text);
+    if (text_len > LORA_CHAT_MAX_LEN - 1) text_len = LORA_CHAT_MAX_LEN - 1;
+
+    uint8_t frag_count = (uint8_t)((text_len + LORA_CHAT_FRAG_CHUNK - 1) / LORA_CHAT_FRAG_CHUNK);
+    if (frag_count == 0) frag_count = 1; // still send one (empty) fragment for an empty message
+
+    uint8_t msg_id = next_msg_id++;
+
+    for (uint8_t frag_index = 0; frag_index < frag_count; frag_index++) {
+        size_t offset = (size_t)frag_index * LORA_CHAT_FRAG_CHUNK;
+        size_t remaining = text_len - offset;
+        uint8_t chunk_len = (remaining > LORA_CHAT_FRAG_CHUNK) ? LORA_CHAT_FRAG_CHUNK : (uint8_t)remaining;
+
+        bool acked = false;
+        for (int attempt = 1; attempt <= LORA_CHAT_MAX_ATTEMPTS; attempt++) {
+            // Once the peer has received a fragment it postpones its own
+            // beacon, so later fragments can go out back-to-back; the
+            // first fragment (and any retry, since the peer may have
+            // missed it) has to find a quiet moment instead.
+            if (frag_index == 0 || attempt > 1) {
+                lora_wait_for_peer_quiet_window(LORA_CHAT_QUIET_MAX_WAIT_MS);
+            }
+            lora_send_chat_fragment(target, msg_id, frag_index, frag_count, text + offset, chunk_len);
+            set_rx_enable();
+            setRxMode();
+
+            lora_listen_and_dispatch(LORA_CHAT_ACK_WAIT_MS, &acked);
+            if (acked) break;
+
+            if (attempt < LORA_CHAT_MAX_ATTEMPTS) {
+                printf("[CHAT] Fragment %d/%d: no ACK, retrying (%d/%d)...\n",
+                       frag_index + 1, frag_count, attempt, LORA_CHAT_MAX_ATTEMPTS);
+            }
+        }
+
+        if (!acked) {
+            printf("[CHAT] Fragment %d/%d failed after %d attempts - message not fully delivered\n",
+                   frag_index + 1, frag_count, LORA_CHAT_MAX_ATTEMPTS);
+            return;
+        }
+    }
+
+    printf("[CHAT] Message delivered in %d fragment(s)\n", frag_count);
+}
+
 void lora_task(void *arg)
 {
     esp_task_wdt_add(NULL);
@@ -1687,12 +1939,13 @@ void lora_task(void *arg)
 
     while (1) {
         while (xQueueReceive(chat_tx_queue, &chat_item, 0) == pdTRUE) {
-            lora_send_chat_packet(chat_item.target, chat_item.text);
-            set_rx_enable();
-            setRxMode();
+            lora_send_chat_with_retry(chat_item.target, chat_item.text);
         }
 
-        if ((xTaskGetTickCount() - last_beacon) >= pdMS_TO_TICKS(next_beacon_interval_ms)) {
+        TickType_t since_beacon = xTaskGetTickCount() - last_beacon;
+        TickType_t since_defer = xTaskGetTickCount() - lora_beacon_defer_tick;
+        TickType_t since_quiet = (since_defer < since_beacon) ? since_defer : since_beacon;
+        if (since_quiet >= pdMS_TO_TICKS(next_beacon_interval_ms)) {
             bool got_gps = xSemaphoreTake(datasent_mutex_gps, pdMS_TO_TICKS(100)) == pdTRUE;
             bool got_max30102 = got_gps && xSemaphoreTake(datasent_mutex_max30102, pdMS_TO_TICKS(100)) == pdTRUE;
             bool got_TMP117 = got_max30102 && xSemaphoreTake(datasent_mutex_TMP117, pdMS_TO_TICKS(100)) == pdTRUE;

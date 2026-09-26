@@ -44,9 +44,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   bool _belongsToRoom(JacketMessage message) {
     if (widget.roomTarget == null) {
-      return !message.fromJacket && message.isBroadcast;
+      return message.inBroadcastRoom;
     }
-    return message.nodeName == widget.roomTarget;
+    return !message.viaBroadcast && message.nodeName == widget.roomTarget;
   }
 
   void _send(BleService ble) {
@@ -230,6 +230,17 @@ class _MessageBubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (message.viaBroadcast && message.fromJacket) ...[
+                Text(
+                  message.nodeName,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.accentBlue,
+                  ),
+                ),
+                const SizedBox(height: 2),
+              ],
               Text(
                 message.text,
                 style: TextStyle(color: isMine ? Colors.white : AppColors.primaryDark),

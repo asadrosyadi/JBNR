@@ -13,7 +13,7 @@ class SettingsTab extends StatelessWidget {
   final bool isConnecting;
   final List<ScanResult> scanResults;
   final VoidCallback onScan;
-  final ValueChanged<BluetoothDevice> onConnect;
+  final void Function(BluetoothDevice device, String advertisedName) onConnect;
   final String deviceName;
   final String deviceId;
   final VoidCallback onDisconnect;

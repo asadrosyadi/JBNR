@@ -7,11 +7,21 @@ import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 import 'section_card.dart';
 
+/// The device's raw advertised BLE name, captured from the scan record -
+/// this is far more reliably populated than `device.platformName` read
+/// back after a connection is already established (which is often empty
+/// on Android), so it's what gets passed to BleService.connect() for
+/// "which node is mine" detection. No display fallback here (that's
+/// _displayName below) - an empty result just means detection can't run.
+String _advertisedName(ScanResult result) => result.device.platformName.isNotEmpty
+    ? result.device.platformName
+    : result.advertisementData.advName;
+
 class AvailableDevicesCard extends StatelessWidget {
   final bool isScanning;
   final List<ScanResult> results;
   final VoidCallback onScan;
-  final ValueChanged<BluetoothDevice> onConnect;
+  final void Function(BluetoothDevice device, String advertisedName) onConnect;
   final bool isConnecting;
 
   const AvailableDevicesCard({
@@ -91,7 +101,7 @@ class AvailableDevicesCard extends StatelessWidget {
                 child: _DeviceTile(
                   result: result,
                   connecting: isConnecting,
-                  onConnect: () => onConnect(result.device),
+                  onConnect: () => onConnect(result.device, _advertisedName(result)),
                 ),
               ),
           ],
@@ -114,11 +124,9 @@ class _DeviceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = result.device.platformName.isNotEmpty
-        ? result.device.platformName
-        : (result.advertisementData.advName.isNotEmpty
-            ? result.advertisementData.advName
-            : 'Smart Jacket');
+    final name = _advertisedName(result).isNotEmpty
+        ? _advertisedName(result)
+        : 'Smart Jacket';
 
     return Container(
       padding: const EdgeInsets.all(10),

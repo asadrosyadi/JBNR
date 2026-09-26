@@ -48,10 +48,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _handleConnect(
     BuildContext context,
     BluetoothDevice device,
+    String advertisedName,
   ) async {
     final ble = context.read<BleService>();
     final s = Strings(context.read<LocaleService>().language);
-    final connected = await ble.connect(device);
+    final connected = await ble.connect(device, advertisedName: advertisedName);
     if (!context.mounted) return;
     if (connected) {
       await showDialog<void>(
@@ -168,7 +169,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       isConnecting: isConnecting,
                       scanResults: ble.scanResults,
                       onScan: () => _handleScan(context),
-                      onConnect: (device) => _handleConnect(context, device),
+                      onConnect: (device, advertisedName) =>
+                          _handleConnect(context, device, advertisedName),
                       deviceName: ble.connectedDevice?.platformName.isNotEmpty == true
                           ? ble.connectedDevice!.platformName
                           : 'ESP-BLE-RECIVER',

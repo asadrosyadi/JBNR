@@ -22,6 +22,17 @@ class BleService extends ChangeNotifier {
 
   List<ScanResult> scanResults = [];
   BluetoothDevice? connectedDevice;
+
+  // Captured from the scan record at connect() time, NOT read back from
+  // connectedDevice.platformName after the connection is established -
+  // on Android that post-connection read is frequently empty, which was
+  // silently breaking _autoDetectMyNode (myNodeName never got set, so
+  // "my own jacket" kept showing up as a normal peer, including as a
+  // chat target you could message - and messaging yourself is silently
+  // dropped by every other jacket, since it's addressed to neither them
+  // nor "ALL").
+  String? _connectedAdvertisedName;
+
   int rssi = 0;
 
   final Map<String, LoraNode> nodes = {};
@@ -139,16 +150,20 @@ class BleService extends ChangeNotifier {
   }
 
   int unreadCountForRoom(String? roomTarget) {
-    if (roomTarget == null) return 0;
     final since = _lastReadAt[roomTarget];
     return messages.where((m) {
-      if (!m.fromJacket || m.nodeName != roomTarget) return false;
+      if (!m.fromJacket) return false;
+      final inRoom = roomTarget == null
+          ? m.viaBroadcast
+          : (!m.viaBroadcast && m.nodeName == roomTarget);
+      if (!inRoom) return false;
       return since == null || m.timestamp.isAfter(since);
     }).length;
   }
 
   int get totalUnreadCount =>
-      nodes.keys.fold<int>(0, (sum, name) => sum + unreadCountForRoom(name));
+      nodes.keys.fold<int>(0, (sum, name) => sum + unreadCountForRoom(name)) +
+      unreadCountForRoom(null);
 
   void setActiveRoom(String? roomTarget) {
     _isChatRoomOpen = true;
@@ -168,8 +183,8 @@ class BleService extends ChangeNotifier {
 
   void deleteRoom(String? roomTarget) {
     messages.removeWhere((m) {
-      if (roomTarget == null) return !m.fromJacket && m.isBroadcast;
-      return m.nodeName == roomTarget;
+      if (roomTarget == null) return m.inBroadcastRoom;
+      return !m.viaBroadcast && m.nodeName == roomTarget;
     });
     _lastReadAt.remove(roomTarget);
     notifyListeners();
@@ -184,7 +199,7 @@ class BleService extends ChangeNotifier {
 
   void _autoDetectMyNode(String name) {
     if (myNodeName != null) return;
-    final deviceName = connectedDevice?.platformName ?? '';
+    final deviceName = _connectedAdvertisedName ?? connectedDevice?.platformName ?? '';
     if (deviceName.isEmpty) return;
     if (deviceName.toLowerCase().contains(name.toLowerCase())) {
       myNodeName = name;
@@ -264,7 +279,7 @@ class BleService extends ChangeNotifier {
     await _scanSub?.cancel();
   }
 
-  Future<bool> connect(BluetoothDevice device) async {
+  Future<bool> connect(BluetoothDevice device, {String? advertisedName}) async {
     await stopScan();
     connectionState = JacketConnectionState.connecting;
     statusMessage = 'Connecting...';
@@ -273,6 +288,7 @@ class BleService extends ChangeNotifier {
     try {
       await device.connect(timeout: const Duration(seconds: 15));
       connectedDevice = device;
+      _connectedAdvertisedName = advertisedName;
 
       await _connectionSub?.cancel();
       _connectionSub = device.connectionState.listen((state) {
@@ -403,11 +419,23 @@ class BleService extends ChangeNotifier {
   void _onTextData(List<int> value) {
     try {
       final (nodeName, payload) = _splitNode(utf8.decode(value));
-      final text = payload.startsWith('Text:') ? payload.substring(5) : payload;
-      messages.add(JacketMessage(text: text, fromJacket: true, nodeName: nodeName));
+      // The jacket tags each relayed message "Broadcast:" (sent to
+      // everyone) or "Text:" (addressed to this jacket); anything else
+      // is treated as a personal message, like older firmware sent.
+      final viaBroadcast = payload.startsWith('Broadcast:');
+      final text = viaBroadcast
+          ? payload.substring('Broadcast:'.length)
+          : (payload.startsWith('Text:') ? payload.substring('Text:'.length) : payload);
+      messages.add(JacketMessage(
+        text: text,
+        fromJacket: true,
+        nodeName: nodeName,
+        viaBroadcast: viaBroadcast,
+      ));
       _nodeFor(nodeName).lastUpdate = DateTime.now();
-      debugPrint('[BLE Manager] Text update - $nodeName: $text');
-      if (!(_isChatRoomOpen && _openRoomTarget == nodeName)) {
+      debugPrint('[BLE Manager] Text update - $nodeName${viaBroadcast ? ' (broadcast)' : ''}: $text');
+      final incomingRoom = viaBroadcast ? null : nodeName;
+      if (!(_isChatRoomOpen && _openRoomTarget == incomingRoom)) {
         NotificationService.showMessage(sender: nodeName, text: text);
       }
       notifyListeners();
@@ -454,6 +482,7 @@ class BleService extends ChangeNotifier {
     _notifySubs.clear();
     _textChar = null;
     connectedDevice = null;
+    _connectedAdvertisedName = null;
     nodes.clear();
     selectedNodeName = null;
     myNodeName = null;

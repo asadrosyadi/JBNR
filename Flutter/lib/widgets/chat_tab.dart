@@ -8,6 +8,10 @@ import '../services/ble_service.dart';
 import '../services/locale_service.dart';
 import '../theme/app_colors.dart';
 
+/// Chat tab: a room list, like WhatsApp's chat list - one room for
+/// broadcasting to every LoRa node, and a separate personal room per
+/// node, so the two never mix in the same timeline. Tapping a room
+/// opens [ChatRoomScreen] for that conversation.
 class ChatTab extends StatelessWidget {
   const ChatTab({super.key});
 
@@ -16,11 +20,13 @@ class ChatTab extends StatelessWidget {
     final ble = context.watch<BleService>();
     final s = Strings(context.watch<LocaleService>().language);
     final messages = ble.messages;
+    // Personal-chat rooms only make sense for other jackets - a room for
+    // your own node would just send messages to yourself, which peers
+    // correctly drop (see handle_remote_chat_packet in the firmware),
+    // making it look like sending silently failed.
     final nodeNames = ble.otherNodeList.map((n) => n.name).toList();
 
-    final broadcastMessages = messages
-        .where((m) => !m.fromJacket && m.isBroadcast)
-        .toList();
+    final broadcastMessages = messages.where((m) => m.inBroadcastRoom).toList();
 
     return Container(
       color: AppColors.background,
@@ -58,7 +64,9 @@ class ChatTab extends StatelessWidget {
               iconColor: AppColors.accentBlue,
               title: name,
               emptySubtitle: s.personalChat,
-              messages: messages.where((m) => m.nodeName == name).toList(),
+              messages: messages
+                  .where((m) => !m.viaBroadcast && m.nodeName == name)
+                  .toList(),
               unreadCount: ble.unreadCountForRoom(name),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
@@ -90,6 +98,8 @@ class ChatTab extends StatelessWidget {
   }
 }
 
+/// Confirms, then deletes every message in a room at once - like WA's
+/// "Delete chat".
 Future<void> _confirmDeleteRoom(
   BuildContext context,
   BleService ble,
